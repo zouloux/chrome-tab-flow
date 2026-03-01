@@ -25,6 +25,7 @@ src/
 - `.prompts/` - Session prompts archive. Read `000-overview.md` first.
 - `.sessions/` - Compact session summaries. Read `000-overview.md` first.
 - `.memory/` - Persistent discoveries & lessons learned. Read `000-overview.md` first.
+- `.actions/` - Reusable AI agent action scripts. Read `000-overview.md` first.
 
 ## Conventions
 - All plan/prompt/session/memory files follow `NNN-title.md` naming
