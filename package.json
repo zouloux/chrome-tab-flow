@@ -3,7 +3,8 @@
   "module": "index.ts",
   "scripts": {
     "build": "bun run build.ts",
-    "dev": "bun run build.ts --watch"
+    "dev": "bun run build.ts --watch",
+    "test": "bun test tests/ --timeout 30000"
   },
   "type": "module",
   "private": true,
