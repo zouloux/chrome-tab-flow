@@ -1,6 +1,22 @@
-# Session 002 - Project Setup
+---
+Session 002
+Project Setup
+---
+# PROMPT
 
-Prompt: `.prompts/002-project-setup.md`
+Second session. Executing `.plan/001-project-setup.md` to initialize the Bun project.
+
+Read AGENTS.md and execute .plan/001-project-setup.md. Also read .plan/000-overview.md for context.
+
+### Scope
+- Initialize Bun project with all dependencies
+- Configure TypeScript, Tailwind, build pipeline
+- Create Manifest V3, sidepanel.html, placeholder icons
+- Create all src/ stub files
+- Verify `bun run build` produces a working dist/
+
+---
+# SESSION
 
 ## Actions
 - Installed Bun (was missing), then ran `bun init` and installed all deps

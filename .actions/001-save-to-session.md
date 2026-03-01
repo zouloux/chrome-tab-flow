@@ -1,24 +1,33 @@
 # Action: Save to Session
 
-Save a summary of the current session into `.sessions/` and the original prompt into `.prompts/`.
+Save a unified session file into `.sessions/` combining the original prompt and a summary.
 
 ## Steps
 
 1. List existing files in `.sessions/` to determine the next number (`NNN`).
 2. Derive a short slug from the session topic (e.g. `background-worker`).
-3. Create `.prompts/NNN-<slug>.md`:
-   - Title matching the session goal
-   - Full or reconstructed prompt the user gave at the start of this session
-   - Any clarifying Q&A that shaped the work
-4. Create `.sessions/NNN-<slug>.md`:
-   - First line: link to the corresponding prompt (`Prompt: .prompts/NNN-<slug>.md`)
-   - Sections: Actions, Key Decisions, State
-   - Max ~20 lines total; be concise
-   - List every file created or modified
-   - Note the current implementation state and what comes next
+3. Create `.sessions/NNN-<slug>.md` with the following structure:
+
+```
+---
+Session NNN
+{Session title}
+---
+# PROMPT
+Full or reconstructed prompt the user gave at the start of this session.
+Include any clarifying Q&A that shaped the work.
+---
+# SESSION
+## Actions
+## Key Decisions
+## State
+## Files Modified
+```
+
+4. Keep the SESSION section concise (~20 lines). List every file created or modified. Note current state and what comes next.
 5. Update `.actions/000-overview.md` if new actions were added this session.
 
 ## Rules
-- Use the same `NNN` for both files.
+- Use the same `NNN` for prompt and session (single file).
 - Do not invent decisions that were not made.
 - "State" section must reflect where the project actually stands now.

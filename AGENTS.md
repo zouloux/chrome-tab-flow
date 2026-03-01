@@ -22,13 +22,12 @@ src/
 
 ## Working Directories
 - `.plan/` - Implementation plan (numbered markdown files). Read `000-overview.md` first.
-- `.prompts/` - Session prompts archive. Read `000-overview.md` first.
-- `.sessions/` - Compact session summaries. Read `000-overview.md` first.
+- `.sessions/` - Session files combining the original prompt and a compact summary. Read `000-overview.md` first.
 - `.memory/` - Persistent discoveries & lessons learned. Read `000-overview.md` first.
 - `.actions/` - Reusable AI agent action scripts. Read `000-overview.md` first.
 
 ## Conventions
-- All plan/prompt/session/memory files follow `NNN-title.md` naming
+- All plan/session/memory files follow `NNN-title.md` naming
 - Code: TypeScript strict, no `any`, functional React components
 - Styling: Tailwind only, dark mode, monospace typography
 - LLM calls happen ONLY in background service worker (CORS)

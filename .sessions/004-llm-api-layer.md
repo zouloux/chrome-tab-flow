@@ -1,4 +1,15 @@
-Prompt: .prompts/003-extension-skeleton.md → Phase 3
+---
+Session 004
+LLM API Layer
+---
+# PROMPT
+
+Continuation of session 003 (same prompt). Executing `.plan/003-llm-api-layer.md` — build the unified LLM streaming client for Anthropic, OpenAI, and Gemini.
+
+> Read AGENTS.md, execute plan step .plan/003-llm-api-layer.md.
+
+---
+# SESSION
 
 ## Actions
 - Updated `src/shared/types.ts`: added `JSONSchema`, `LLMProvider`, `LLMConfig`, `ContentPart`, `LLMMessage` (with `toolCallId`/`toolName` for tool results), `ToolDefinition`, `ToolCall`, `StreamEvent`
