@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "TabFlow",
+  "version": "0.1.0",
+  "description": "AI-powered tab control and analysis",
+  "permissions": [
+    "activeTab",
+    "sidePanel",
+    "storage",
+    "scripting",
+    "tabs"
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content/index.js"]
+  }],
+  "action": {
+    "default_title": "TabFlow"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
