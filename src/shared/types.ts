@@ -1,5 +1,7 @@
 // Shared types for TabFlow extension
 
+// ── Chat / UI types ───────────────────────────────────────────────────────────
+
 export type MessageRole = "user" | "assistant" | "tool"
 
 export interface ChatMessage {
@@ -12,4 +14,64 @@ export interface ChatMessage {
 export interface ExtensionMessage {
   type: string
   payload?: unknown
+}
+
+// ── JSON Schema (minimal, for tool parameters) ────────────────────────────────
+
+export type JSONSchema = {
+  type: string
+  properties?: Record<string, JSONSchema>
+  items?: JSONSchema
+  required?: string[]
+  description?: string
+  enum?: unknown[]
+  [key: string]: unknown
+}
+
+// ── LLM types ─────────────────────────────────────────────────────────────────
+
+export type LLMProvider = "anthropic" | "openai" | "gemini"
+
+export interface LLMConfig {
+  provider: LLMProvider
+  apiKey: string
+  model: string
+  maxTokens?: number
+  temperature?: number
+  systemPrompt?: string
+}
+
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
+
+export interface LLMMessage {
+  role: "user" | "assistant" | "system" | "tool"
+  content: string | ContentPart[]
+  /** For role=tool: the tool call id this result belongs to */
+  toolCallId?: string
+  /** For role=tool: the tool name */
+  toolName?: string
+  /** For role=assistant: tool calls made by the assistant (needed to reconstruct the message on the second turn) */
+  toolCalls?: ToolCall[]
+}
+
+export interface ToolDefinition {
+  name: string
+  description: string
+  parameters: JSONSchema
+}
+
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+export interface StreamEvent {
+  type: "text" | "thinking" | "tool_call" | "tool_calls_done" | "done" | "error"
+  content?: string
+  toolCall?: ToolCall
+  usage?: { input: number; output: number }
+  error?: string
 }
