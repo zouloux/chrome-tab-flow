@@ -3,6 +3,7 @@
 
 import type { Message, Response } from "../shared/messages"
 import { ok, err } from "../shared/messages"
+import { executeTool, contentTools } from "./tools"
 
 console.log("[TabFlow] content script loaded on", location.href)
 
@@ -20,6 +21,26 @@ async function handleMessage(message: Message): Promise<Response> {
     case "ping": {
       console.log("[TabFlow] content: pong!")
       return ok("pong", message.requestId)
+    }
+
+    case "tool:execute": {
+      const payload = message.payload as { name: string; params: unknown } | undefined
+      if (!payload?.name) {
+        return err("Missing tool name", message.requestId)
+      }
+
+      console.log("[TabFlow] content: executing tool", payload.name)
+
+      if (!contentTools[payload.name]) {
+        return err(`Unknown tool: ${payload.name}`, message.requestId)
+      }
+
+      try {
+        const result = await executeTool(payload.name, payload.params)
+        return ok(result, message.requestId)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e), message.requestId)
+      }
     }
 
     default:

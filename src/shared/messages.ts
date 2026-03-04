@@ -5,6 +5,8 @@
 export type MessageType =
   | "ping"
   | "pong"
+  | "tool:execute"
+  | "tool:result"
   | "dom:getContent"
   | "dom:content"
   | "llm:stream"
