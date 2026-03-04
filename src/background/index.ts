@@ -2,9 +2,32 @@
 // Handles LLM calls, message routing, and state management
 
 import type { Message, Response } from "../shared/messages"
-import { ok, err, sendToContent } from "../shared/messages"
-import type { ToolResult } from "../shared/tool-types"
-import { isValidTool, toolSchemas } from "../shared/tools"
+import { ok, err } from "../shared/messages"
+import type { Settings } from "../shared/settings"
+import { DEFAULT_SETTINGS } from "../shared/settings"
+import {
+  state,
+  getConversation,
+  getConversationForTab,
+  createConversation,
+  deleteConversation as deleteConversationFromState,
+  abortStream,
+  createAbortController,
+  clearAbortController,
+} from "./state"
+import {
+  getSettings,
+  saveSettings,
+  getConversations,
+  getConversation as getStoredConversation,
+  saveConversation,
+  deleteConversationFromStorage,
+  setActiveConversationId,
+  getActiveConversationId,
+  generateTitle,
+  type StoredConversation,
+} from "./storage"
+import { runConversation } from "./orchestrator"
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -18,46 +41,178 @@ chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id! })
 })
 
-// ── Message router ────────────────────────────────────────────────────────────
+// ── Message Router ────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse: (r: Response) => void) => {
     console.log("[TabFlow] background: received", message.type, "from", sender.tab ? `tab ${sender.tab.id}` : "extension")
 
-    // Return true to indicate we will respond asynchronously
     handleMessage(message, sender).then(sendResponse)
-    return true
+    return true // async response
   }
 )
 
 async function handleMessage(message: Message, sender: chrome.runtime.MessageSender): Promise<Response> {
   switch (message.type) {
+    // ── Ping ──────────────────────────────────────────────────────────────────
     case "ping": {
-      // Forward ping to the active content script and relay the response back
       const tabId = await getActiveTabId()
       if (tabId === null) {
         return err("No active tab found", message.requestId)
       }
-      console.log("[TabFlow] background: forwarding ping to content script in tab", tabId)
-      try {
-        const response = await sendToContent<unknown, string>(tabId, "ping", message.payload, message.requestId)
-        console.log("[TabFlow] background: got pong from content script", response)
-        return response
-      } catch (_e) {
-        // Content script not present in this tab (e.g. tab was open before extension loaded).
-        // Inject it programmatically and retry once.
-        console.log("[TabFlow] background: content script missing – injecting and retrying")
-        try {
-          await chrome.scripting.executeScript({ target: { tabId }, files: ["content/index.js"] })
-          const response = await sendToContent<unknown, string>(tabId, "ping", message.payload, message.requestId)
-          console.log("[TabFlow] background: got pong after injection", response)
-          return response
-        } catch (e2) {
-          return err(`Content script unreachable: ${e2}`, message.requestId)
-        }
-      }
+      return ok({ status: "ok", tabId }, message.requestId)
     }
 
+    // ── Settings ──────────────────────────────────────────────────────────────
+    case "settings:get": {
+      const settings = await getSettings()
+      return ok(settings, message.requestId)
+    }
+
+    case "settings:set": {
+      const payload = message.payload as Partial<Settings>
+      const updated = await saveSettings(payload)
+      return ok(updated, message.requestId)
+    }
+
+    // ── Conversations ─────────────────────────────────────────────────────────
+    case "conversation:new": {
+      const payload = message.payload as { tabId?: number; tabUrl?: string }
+      const tabId = payload.tabId ?? (await getActiveTabId()) ?? 0
+      const tabUrl = payload.tabUrl ?? ""
+
+      const id = crypto.randomUUID()
+      const conv: StoredConversation = {
+        id,
+        title: "New Conversation",
+        tabId,
+        tabUrl,
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+
+      await saveConversation(conv)
+      createConversation(id, tabId)
+      await setActiveConversationId(id)
+
+      return ok(conv, message.requestId)
+    }
+
+    case "conversation:list": {
+      const conversations = await getConversations()
+      return ok(conversations, message.requestId)
+    }
+
+    case "conversation:load": {
+      const payload = message.payload as { id: string }
+      const conv = await getStoredConversation(payload.id)
+      if (!conv) {
+        return err("Conversation not found", message.requestId)
+      }
+
+      // Create in-memory state if not exists
+      if (!getConversation(conv.id)) {
+        createConversation(conv.id, conv.tabId)
+      }
+
+      await setActiveConversationId(conv.id)
+      return ok(conv, message.requestId)
+    }
+
+    case "conversation:delete": {
+      const payload = message.payload as { id: string }
+      await deleteConversationFromStorage(payload.id)
+      deleteConversationFromState(payload.id)
+
+      // Clear active if it was the deleted conversation
+      const activeId = await getActiveConversationId()
+      if (activeId === payload.id) {
+        await setActiveConversationId(null)
+      }
+
+      return ok({ deleted: true }, message.requestId)
+    }
+
+    case "conversation:rename": {
+      const payload = message.payload as { id: string; title: string }
+      const conv = await getStoredConversation(payload.id)
+      if (!conv) {
+        return err("Conversation not found", message.requestId)
+      }
+
+      conv.title = payload.title
+      conv.updatedAt = Date.now()
+      await saveConversation(conv)
+
+      return ok(conv, message.requestId)
+    }
+
+    // ── LLM Streaming ────────────────────────────────────────────────────────
+    case "llm:stream": {
+      const payload = message.payload as {
+        conversationId: string
+        message: string
+        tabId?: number
+      }
+
+      const settings = await getSettings()
+      if (!settings.apiKey) {
+        return err("API key not configured. Please add your API key in settings.", message.requestId)
+      }
+
+      // Get or create conversation state
+      let conv = getConversation(payload.conversationId)
+      if (!conv) {
+        // Load from storage
+        const stored = await getStoredConversation(payload.conversationId)
+        if (stored) {
+          conv = createConversation(stored.id, stored.tabId)
+          conv.messages = stored.messages
+        } else {
+          return err("Conversation not found", message.requestId)
+        }
+      }
+
+      // Check if already streaming
+      if (conv.isStreaming) {
+        return err("Conversation is already streaming", message.requestId)
+      }
+
+      // Create abort controller
+      createAbortController(conv.id)
+
+      // Run conversation in background (no await)
+      runConversation(conv, settings, payload.message)
+        .then(async () => {
+          // Save to storage after completion
+          const stored = await getStoredConversation(conv!.id)
+          if (stored) {
+            stored.messages = conv!.messages
+            stored.updatedAt = Date.now()
+            // Auto-generate title from first user message
+            if (stored.messages.length === 1 && stored.messages[0].role === "user") {
+              stored.title = generateTitle(stored.messages[0].content as string)
+            }
+            await saveConversation(stored)
+          }
+          clearAbortController(conv!.id)
+        })
+        .catch((e) => {
+          console.error("[TabFlow] background: conversation error", e)
+          clearAbortController(conv!.id)
+        })
+
+      return ok({ started: true }, message.requestId)
+    }
+
+    case "llm:abort": {
+      const payload = message.payload as { conversationId: string }
+      const aborted = abortStream(payload.conversationId)
+      return ok({ aborted }, message.requestId)
+    }
+
+    // ── Tool Execution (legacy, for direct tool calls) ────────────────────────
     case "tool:execute": {
       const payload = message.payload as { name: string; params: unknown; tabId?: number } | undefined
       if (!payload?.name) {
@@ -71,7 +226,7 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
         return err("No active tab found", message.requestId)
       }
 
-      return executeTool(name, params, tabId, message.requestId)
+      return executeToolLegacy(name, params, tabId, message.requestId)
     }
 
     default:
@@ -80,139 +235,26 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
   }
 }
 
-// ── Tool Execution ────────────────────────────────────────────────────────────
+// ── Legacy Tool Execution ────────────────────────────────────────────────────
 
-const BACKGROUND_TOOLS = new Set(["page_navigate", "page_screenshot"])
-
-async function executeTool(
+async function executeToolLegacy(
   name: string,
   params: unknown,
   tabId: number,
   requestId?: string
 ): Promise<Response> {
-  if (!isValidTool(name)) {
-    return err(`Unknown tool: ${name}`, requestId)
-  }
-
-  console.log("[TabFlow] background: executing tool", name, "in tab", tabId)
-
-  // Tools that run in background
-  if (name === "page_navigate") {
-    return executePageNavigate(params, tabId, requestId)
-  }
-
-  if (name === "page_screenshot") {
-    return executePageScreenshot(params, tabId, requestId)
-  }
-
-  // All other tools run in content script
+  // Import the legacy tool executor
+  const { executeTool } = await import("./tools")
+  
   try {
-    const response = await sendToContent<{ name: string; params: unknown }, ToolResult<unknown>>(
-      tabId,
-      "tool:execute",
-      { name, params },
-      requestId
-    )
-    return response
+    const result = await executeTool(name, params, tabId)
+    if (result.success) {
+      return ok(result.data, requestId)
+    } else {
+      return err(result.error ?? "Tool execution failed", requestId)
+    }
   } catch (e) {
     return err(`Failed to execute tool: ${e}`, requestId)
-  }
-}
-
-async function executePageNavigate(
-  params: unknown,
-  tabId: number,
-  requestId?: string
-): Promise<Response> {
-  const { url } = params as { url: string }
-  if (!url) {
-    return err("Missing url parameter", requestId)
-  }
-
-  try {
-    await chrome.tabs.update(tabId, { url })
-    return ok({ success: true, message: `Navigated to: ${url}` }, requestId)
-  } catch (e) {
-    return err(`Failed to navigate: ${e}`, requestId)
-  }
-}
-
-async function executePageScreenshot(
-  params: unknown,
-  tabId: number,
-  requestId?: string
-): Promise<Response> {
-  const { selector, fullPage } = params as { selector?: string; fullPage?: boolean }
-
-  try {
-    // First, prepare for screenshot in content script
-    const prepResponse = await sendToContent<
-      { name: string; params: unknown },
-      { elementBounds?: { x: number; y: number; width: number; height: number }; devicePixelRatio: number }
-    >(tabId, "tool:execute", { name: "page_screenshot_prep", params: { selector } }, requestId)
-
-    if (!prepResponse.success || !prepResponse.data) {
-      return err(prepResponse.error ?? "Failed to prepare screenshot", requestId)
-    }
-
-    // Capture visible tab
-    const dataUrl = await chrome.tabs.captureVisibleTab(undefined, {
-      format: "png",
-      quality: 100,
-    })
-
-    // If element-specific, we need to crop
-    if (prepResponse.data.elementBounds) {
-      // For now, return the full screenshot with bounds info
-      // A full implementation would use an offscreen document to crop
-      return ok(
-        {
-          data: dataUrl,
-          mimeType: "image/png" as const,
-          width: prepResponse.data.elementBounds.width,
-          height: prepResponse.data.elementBounds.height,
-          bounds: prepResponse.data.elementBounds,
-        },
-        requestId
-      )
-    }
-
-    // Return full viewport screenshot
-    return ok(
-      {
-        data: dataUrl,
-        mimeType: "image/png" as const,
-        width: prepResponse.data.devicePixelRatio * (await getViewportWidth(tabId)),
-        height: prepResponse.data.devicePixelRatio * (await getViewportHeight(tabId)),
-      },
-      requestId
-    )
-  } catch (e) {
-    return err(`Failed to capture screenshot: ${e}`, requestId)
-  }
-}
-
-async function getViewportWidth(tabId: number): Promise<number> {
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => window.innerWidth,
-    })
-    return results[0]?.result ?? 1920
-  } catch {
-    return 1920
-  }
-}
-
-async function getViewportHeight(tabId: number): Promise<number> {
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => window.innerHeight,
-    })
-    return results[0]?.result ?? 1080
-  } catch {
-    return 1080
   }
 }
 

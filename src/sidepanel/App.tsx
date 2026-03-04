@@ -8,14 +8,16 @@ type ConnectionStatus = "checking" | "connected" | "error"
 export function App() {
   const [status, setStatus] = useState<ConnectionStatus>("checking")
   const [errorMsg, setErrorMsg] = useState<string>("")
+  const [tabId, setTabId] = useState<number | null>(null)
 
   useEffect(() => {
     async function ping() {
       console.log("[TabFlow] sidepanel: sending ping via background…")
       try {
-        const response = await sendToBackground<null, string>("ping", null)
-        if (response.success && response.data === "pong") {
+        const response = await sendToBackground<null, { status: string; tabId: number }>("ping", null)
+        if (response.success && response.data?.status === "ok") {
           console.log("[TabFlow] sidepanel: pong received – round-trip OK")
+          setTabId(response.data.tabId)
           setStatus("connected")
         } else {
           console.warn("[TabFlow] sidepanel: unexpected response", response)
@@ -45,7 +47,7 @@ export function App() {
         {status === "connected" && (
           <>
             <span className="h-2 w-2 rounded-full bg-green-400" />
-            <span className="text-green-400">Connected – round-trip OK</span>
+            <span className="text-green-400">Connected (tab: {tabId})</span>
           </>
         )}
         {status === "error" && (

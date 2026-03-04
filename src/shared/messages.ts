@@ -9,9 +9,20 @@ export type MessageType =
   | "tool:result"
   | "dom:getContent"
   | "dom:content"
+  // LLM streaming
   | "llm:stream"
   | "llm:chunk"
   | "llm:done"
+  | "llm:error"
+  | "llm:abort"
+  // Conversations
+  | "conversation:new"
+  | "conversation:list"
+  | "conversation:load"
+  | "conversation:delete"
+  | "conversation:rename"
+  | "conversation:data"
+  // Settings
   | "settings:get"
   | "settings:set"
   | "settings:data"
