@@ -118,7 +118,8 @@ async function runLLMLoop(
         )
 
         // Append assistant message with tool calls
-        const lastAssistantMsg = conversation.messages.findLast((m) => m.role === "assistant")
+        const lastAssistantIdx = conversation.messages.length - 1 - conversation.messages.slice().reverse().findIndex((m) => m.role === "assistant")
+        const lastAssistantMsg = lastAssistantIdx >= 0 ? conversation.messages[lastAssistantIdx] : undefined
         if (!lastAssistantMsg || !lastAssistantMsg.toolCalls) {
           // Create new assistant message
           const textContent = conversation.messages
@@ -152,7 +153,7 @@ async function runLLMLoop(
 
       if (event.type === "done") {
         // Finalize assistant message
-        const lastUserIdx = conversation.messages.findLastIndex((m) => m.role === "user")
+        const lastUserIdx = conversation.messages.length - 1 - conversation.messages.slice().reverse().findIndex((m) => m.role === "user")
         const assistantMessages = conversation.messages.slice(lastUserIdx + 1)
         
         // If we had text content, ensure it's captured

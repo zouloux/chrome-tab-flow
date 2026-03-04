@@ -191,7 +191,7 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
             stored.messages = conv!.messages
             stored.updatedAt = Date.now()
             // Auto-generate title from first user message
-            if (stored.messages.length === 1 && stored.messages[0].role === "user") {
+            if (stored.messages.length === 1 && stored.messages[0]?.role === "user") {
               stored.title = generateTitle(stored.messages[0].content as string)
             }
             await saveConversation(stored)

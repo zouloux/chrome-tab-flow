@@ -87,7 +87,7 @@ async function executePageScreenshot(
     }
 
     // Capture visible tab
-    const dataUrl = await chrome.tabs.captureVisibleTab(undefined, {
+    const dataUrl = await chrome.tabs.captureVisibleTab(chrome.windows.WINDOW_ID_CURRENT, {
       format: "png",
       quality: 100,
     })

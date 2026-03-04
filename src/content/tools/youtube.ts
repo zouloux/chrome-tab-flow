@@ -94,7 +94,7 @@ function extractYtInitialData(): Record<string, unknown> | null {
     if (text.includes("var ytInitialData =")) {
       try {
         const match = text.match(/var ytInitialData = ({[\s\S]*?});/)
-        if (match) {
+        if (match && match[1]) {
           return JSON.parse(match[1]) as Record<string, unknown>
         }
       } catch {
@@ -113,11 +113,11 @@ function extractFromYtData(
   try {
     const playerResponse = data.playerResponse as Record<string, unknown> | undefined
     if (!playerResponse) return segments
-    
+
     const captions = (playerResponse.captions as Record<string, unknown> | undefined)
       ?.playerCaptionsTracklistRenderer as Record<string, unknown> | undefined
     const captionTracks = captions?.captionTracks as Array<Record<string, unknown>> | undefined
-    
+
     if (captionTracks && Array.isArray(captionTracks) && captionTracks.length > 0) {
       // Would need to fetch the actual caption track
       // This is a placeholder - full implementation would fetch and parse
@@ -134,7 +134,7 @@ function findCaptionTrackUrl(): string | null {
   for (const script of scripts) {
     const text = script.textContent || ""
     const match = text.match(/"captionTracks":\s*\[\s*\{[^}]*"baseUrl":\s*"([^"]+)"/)
-    if (match) {
+    if (match && match[1]) {
       try {
         return decodeURIComponent(JSON.parse(`"${match[1]}"`))
       } catch {
@@ -210,10 +210,10 @@ async function extractFromTranscriptPanel(): Promise<
 function parseTimeToSeconds(time: string): number {
   const parts = time.split(":").map(Number)
   if (parts.length === 2) {
-    return parts[0] * 60 + parts[1]
+    return (parts[0] ?? 0) * 60 + (parts[1] ?? 0)
   }
   if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return (parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0)
   }
   return 0
 }

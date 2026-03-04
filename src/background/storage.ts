@@ -27,7 +27,8 @@ interface StorageData {
 
 export async function getSettings(): Promise<Settings> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS)
-  return { ...DEFAULT_SETTINGS, ...result[STORAGE_KEYS.SETTINGS] }
+  const stored = result[STORAGE_KEYS.SETTINGS]
+  return { ...DEFAULT_SETTINGS, ...(stored ?? {}) }
 }
 
 export async function saveSettings(settings: Partial<Settings>): Promise<Settings> {
@@ -41,7 +42,8 @@ export async function saveSettings(settings: Partial<Settings>): Promise<Setting
 
 export async function getConversations(): Promise<StoredConversation[]> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.CONVERSATIONS)
-  return result[STORAGE_KEYS.CONVERSATIONS] ?? []
+  const conversations = result[STORAGE_KEYS.CONVERSATIONS]
+  return Array.isArray(conversations) ? conversations : []
 }
 
 export async function saveConversation(conv: StoredConversation): Promise<void> {
@@ -70,7 +72,8 @@ export async function getConversation(id: string): Promise<StoredConversation | 
 
 export async function getActiveConversationId(): Promise<string | null> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_CONVERSATION)
-  return result[STORAGE_KEYS.ACTIVE_CONVERSATION] ?? null
+  const id = result[STORAGE_KEYS.ACTIVE_CONVERSATION]
+  return typeof id === "string" ? id : null
 }
 
 export async function setActiveConversationId(id: string | null): Promise<void> {
