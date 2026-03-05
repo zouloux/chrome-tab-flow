@@ -5,6 +5,7 @@ import type { Message, Response } from "../shared/messages"
 import { ok, err } from "../shared/messages"
 import type { Settings } from "../shared/settings"
 import { DEFAULT_SETTINGS } from "../shared/settings"
+import type { ConversationIndexEntry, LLMMessage } from "../shared/types"
 import {
   state,
   getConversation,
@@ -25,6 +26,8 @@ import {
   setActiveConversationId,
   getActiveConversationId,
   generateTitle,
+  storedMessageToLLM,
+  llmMessageToStored,
   type StoredConversation,
 } from "./storage"
 import { runConversation } from "./orchestrator"
@@ -111,9 +114,10 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
         return err("Conversation not found", message.requestId)
       }
 
-      // Create in-memory state if not exists
+      // Create in-memory state if not exists, converting stored messages to LLM format
       if (!getConversation(conv.id)) {
-        createConversation(conv.id, conv.tabId)
+        const stateConv = createConversation(conv.id, conv.tabId)
+        stateConv.messages = conv.messages.map(storedMessageToLLM)
       }
 
       await setActiveConversationId(conv.id)
@@ -157,7 +161,8 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       }
 
       const settings = await getSettings()
-      if (!settings.apiKey) {
+      const apiKey = getApiKeyForProvider(settings)
+      if (!apiKey) {
         return err("API key not configured. Please add your API key in settings.", message.requestId)
       }
 
@@ -168,7 +173,7 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
         const stored = await getStoredConversation(payload.conversationId)
         if (stored) {
           conv = createConversation(stored.id, stored.tabId)
-          conv.messages = stored.messages
+          conv.messages = stored.messages.map(storedMessageToLLM)
         } else {
           return err("Conversation not found", message.requestId)
         }
@@ -182,14 +187,27 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       // Create abort controller
       createAbortController(conv.id)
 
+      // Transform settings to legacy format for orchestrator
+      const legacySettings = {
+        provider: settings.defaultProvider,
+        apiKey: getApiKeyForProvider(settings)!,
+        model: settings.defaultModel,
+        maxTokens: settings.maxTokens,
+        temperature: settings.temperature,
+        thinking: settings.showReasoning,
+      }
+
       // Run conversation in background (no await)
-      runConversation(conv, settings, payload.message)
+      runConversation(conv, legacySettings, payload.message)
         .then(async () => {
-          // Save to storage after completion
+          // Save to storage after completion, converting LLM messages to stored format
           const stored = await getStoredConversation(conv!.id)
           if (stored) {
-            stored.messages = conv!.messages
-            stored.updatedAt = Date.now()
+            const now = Date.now()
+            stored.messages = conv!.messages.map((m, i) => 
+              llmMessageToStored(m, stored.messages[i]?.timestamp ?? now)
+            )
+            stored.updatedAt = now
             // Auto-generate title from first user message
             if (stored.messages.length === 1 && stored.messages[0]?.role === "user") {
               stored.title = generateTitle(stored.messages[0].content as string)
@@ -263,6 +281,19 @@ async function executeToolLegacy(
 async function getActiveTabId(): Promise<number | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   return tab?.id ?? null
+}
+
+function getApiKeyForProvider(settings: Settings): string | null {
+  switch (settings.defaultProvider) {
+    case "anthropic":
+      return settings.anthropicApiKey || null
+    case "openai":
+      return settings.openaiApiKey || null
+    case "gemini":
+      return settings.geminiApiKey || null
+    default:
+      return null
+  }
 }
 
 export {}

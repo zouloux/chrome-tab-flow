@@ -41,9 +41,11 @@ export function useChat(conversationId: string | null) {
   const [messages, setMessages] = useState<UIMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
   // Ref to current streaming assistant message id
   const streamingMsgIdRef = useRef<string | null>(null)
+  const currentConvIdRef = useRef<string | null>(null)
 
   // Load stored conversation messages into UI format
   const loadMessages = useCallback((conv: StoredConversation) => {
@@ -51,49 +53,47 @@ export function useChat(conversationId: string | null) {
 
     for (const msg of conv.messages) {
       if (msg.role === "user") {
-        const text = typeof msg.content === "string"
-          ? msg.content
-          : msg.content.map((p) => (p.type === "text" ? p.text : "[image]")).join("")
         uiMessages.push({
           id: crypto.randomUUID(),
           role: "user",
-          text,
+          text: msg.content,
         })
       } else if (msg.role === "assistant") {
-        const text = typeof msg.content === "string"
-          ? msg.content
-          : msg.content.map((p) => (p.type === "text" ? p.text : "")).join("")
-
         const toolCalls: UIToolCall[] = (msg.toolCalls ?? []).map((tc) => ({
           id: tc.id,
           name: tc.name,
           arguments: tc.arguments,
-          result: undefined,
+          result: tc.result,
           done: true,
         }))
 
-        // Attach tool results
-        for (const toolCall of toolCalls) {
-          const resultMsg = conv.messages.find(
-            (m) => m.role === "tool" && m.toolCallId === toolCall.id
-          )
-          if (resultMsg) {
-            toolCall.result = typeof resultMsg.content === "string"
-              ? resultMsg.content
-              : JSON.stringify(resultMsg.content)
+        // Find tool results for this assistant message
+        // Tool results are in subsequent "tool" role messages
+        // We need to look ahead in the conversation
+        const msgIdx = conv.messages.indexOf(msg)
+        for (const tc of toolCalls) {
+          for (let i = msgIdx + 1; i < conv.messages.length; i++) {
+            const nextMsg = conv.messages[i]
+            if (nextMsg?.role === "tool" && nextMsg.toolCallId === tc.id) {
+              tc.result = nextMsg.content
+              break
+            }
+            if (nextMsg?.role !== "tool") {
+              break
+            }
           }
         }
 
-        if (text || toolCalls.length > 0) {
+        if (msg.content || toolCalls.length > 0) {
           uiMessages.push({
             id: crypto.randomUUID(),
             role: "assistant",
-            text,
+            text: msg.content,
+            thinking: msg.thinking,
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           })
         }
       }
-      // Skip "tool" role messages - they're shown inside the corresponding assistant UIMessage
     }
 
     setMessages(uiMessages)
@@ -108,6 +108,41 @@ export function useChat(conversationId: string | null) {
     setError(null)
     streamingMsgIdRef.current = null
   }, [])
+
+  // Load conversation when conversationId changes
+  useEffect(() => {
+    if (!conversationId) {
+      clearMessages()
+      currentConvIdRef.current = null
+      return
+    }
+
+    // Skip if already loaded this conversation
+    if (currentConvIdRef.current === conversationId) {
+      return
+    }
+
+    async function loadConversationData() {
+      setIsLoading(true)
+      try {
+        const res = await sendToBackground<{ id: string }, StoredConversation>(
+          "conversation:load",
+          { id: conversationId! }
+        )
+        if (res.success && res.data) {
+          loadMessages(res.data)
+          currentConvIdRef.current = conversationId
+        }
+      } catch (e) {
+        console.error("[TabFlow] useChat: failed to load conversation", e)
+        setError("Failed to load conversation")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadConversationData()
+  }, [conversationId, loadMessages, clearMessages])
 
   // ── Listen for streaming chunks from background ───────────────────────────
 
@@ -293,6 +328,7 @@ export function useChat(conversationId: string | null) {
   return {
     messages,
     isStreaming,
+    isLoading,
     error,
     sendMessage,
     abort,
@@ -300,5 +336,3 @@ export function useChat(conversationId: string | null) {
     clearMessages,
   }
 }
-
-

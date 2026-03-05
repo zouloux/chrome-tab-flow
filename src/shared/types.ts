@@ -75,3 +75,29 @@ export interface StreamEvent {
   usage?: { input: number; output: number }
   error?: string
 }
+
+// ── Stored Conversation types ────────────────────────────────────────────────
+
+export interface StoredToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  result: string
+}
+
+export interface StoredMessage {
+  role: "user" | "assistant" | "tool"
+  content: string
+  thinking?: string
+  toolCalls?: StoredToolCall[]
+  toolCallId?: string
+  toolName?: string
+  timestamp: number
+}
+
+export interface ConversationIndexEntry {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}

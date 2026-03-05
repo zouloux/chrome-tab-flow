@@ -1,7 +1,7 @@
 // Conversation list - collapsible bottom panel showing past conversations
 
 import { useState } from "react"
-import type { StoredConversation } from "../../background/storage"
+import type { ConversationIndexEntry } from "../../shared/types"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ function IconX() {
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface ConversationListProps {
-  conversations: StoredConversation[]
+  conversations: ConversationIndexEntry[]
   activeId: string | null
   onSelect: (id: string) => void
   onDelete: (id: string) => void

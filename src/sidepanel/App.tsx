@@ -5,40 +5,23 @@ import { Header } from "./components/Header"
 import { MessageList } from "./components/MessageList"
 import { InputArea } from "./components/InputArea"
 import { ConversationList } from "./components/ConversationList"
+import { SettingsPanel } from "./components/SettingsPanel"
 import { useChat } from "./hooks/useChat"
 import { useConversations } from "./hooks/useConversations"
 
-// ── Settings Placeholder ──────────────────────────────────────────────────────
-// (Full settings panel will be implemented in phase 8)
+// ── Loading Spinner ────────────────────────────────────────────────────────────
 
-function SettingsPlaceholder({ onBack }: { onBack: () => void }) {
+function LoadingSpinner() {
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: "#0a0a0a" }}>
-      {/* Header */}
-      <div
-        className="flex items-center gap-3 px-3"
-        style={{ height: "40px", borderBottom: "1px solid #2a2a2a", flexShrink: 0 }}
-      >
-        <button
-          onClick={onBack}
-          className="flex items-center justify-center rounded transition-colors"
-          style={{ width: "28px", height: "28px", color: "#a0a0a0" }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#e5e5e5"; (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e" }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#a0a0a0"; (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent" }}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 3L5 8l5 5" />
-          </svg>
-        </button>
-        <span className="text-sm font-semibold" style={{ color: "#e5e5e5" }}>Settings</span>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 flex items-center justify-center" style={{ color: "#666666" }}>
-        <div className="text-center text-sm">
-          <div style={{ color: "#a0a0a0", marginBottom: "4px" }}>Settings panel</div>
-          <div className="text-xs">Coming in phase 8</div>
-        </div>
+    <div
+      className="flex-1 flex items-center justify-center"
+      style={{ color: "#666666" }}
+    >
+      <div className="animate-spin">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+          <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+        </svg>
       </div>
     </div>
   )
@@ -69,7 +52,7 @@ interface ChatViewProps {
 }
 
 function ChatView({ conversationId, onNewChat }: ChatViewProps) {
-  const { messages, isStreaming, error, sendMessage, abort } = useChat(conversationId)
+  const { messages, isStreaming, isLoading, error, sendMessage, abort } = useChat(conversationId)
   const [inputValue, setInputValue] = useState("")
 
   const handleSend = useCallback(() => {
@@ -77,6 +60,11 @@ function ChatView({ conversationId, onNewChat }: ChatViewProps) {
     sendMessage(inputValue)
     setInputValue("")
   }, [conversationId, inputValue, isStreaming, sendMessage])
+
+  // Show loading spinner while loading conversation
+  if (isLoading) {
+    return <LoadingSpinner />
+  }
 
   // Show placeholder if no conversation selected
   if (!conversationId) {
@@ -130,14 +118,18 @@ export function App() {
 
   // Auto-create a conversation on first launch
   useEffect(() => {
-    if (!loading && conversations.length === 0) {
+    if (loading) return
+    
+    if (conversations.length === 0) {
       newConversation()
-    } else if (!loading && conversations.length > 0 && !activeId) {
+    } else if (!activeId) {
       // Load the most recent conversation
       const first = conversations[0]
-      if (first) loadConversation(first.id)
+      if (first) {
+        loadConversation(first.id)
+      }
     }
-  }, [loading]) // intentionally only run on loading change
+  }, [loading, conversations.length, activeId])
 
   const handleNewChat = useCallback(async () => {
     await newConversation()
@@ -148,7 +140,7 @@ export function App() {
   }, [loadConversation])
 
   if (view === "settings") {
-    return <SettingsPlaceholder onBack={() => setView("chat")} />
+    return <SettingsPanel onBack={() => setView("chat")} />
   }
 
   return (

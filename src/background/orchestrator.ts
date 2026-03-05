@@ -38,11 +38,35 @@ function sendDone(conversationId: string, error?: string): void {
 
 // ── Build LLM Config ─────────────────────────────────────────────────────────
 
-function buildLLMConfig(settings: Settings) {
+interface LegacySettings {
+  provider: string
+  apiKey: string
+  model: string
+  maxTokens: number
+  temperature: number
+  thinking: boolean
+}
+
+function isLegacySettings(s: Settings | LegacySettings): s is LegacySettings {
+  return "apiKey" in s
+}
+
+function buildLLMConfig(settings: Settings | LegacySettings) {
+  let provider: string
+  let model: string
+
+  if (isLegacySettings(settings)) {
+    provider = settings.provider
+    model = settings.model
+  } else {
+    provider = settings.defaultProvider
+    model = settings.defaultModel
+  }
+
   return {
-    provider: settings.provider,
-    apiKey: settings.apiKey,
-    model: settings.model,
+    provider: provider as "anthropic" | "openai" | "gemini",
+    apiKey: isLegacySettings(settings) ? settings.apiKey : "",
+    model,
     maxTokens: settings.maxTokens,
     temperature: settings.temperature,
     systemPrompt: buildSystemPrompt(),
@@ -53,7 +77,7 @@ function buildLLMConfig(settings: Settings) {
 
 export async function runConversation(
   conversation: ConversationState,
-  settings: Settings,
+  settings: Settings | LegacySettings,
   userMessage: string
 ): Promise<void> {
   const tools = getToolsForLLM()

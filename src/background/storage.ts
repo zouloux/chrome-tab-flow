@@ -1,6 +1,7 @@
-// Chrome storage helpers for TabFlow
+// Chrome storage helpers for TabFlow - split storage strategy
 
-import type { LLMMessage } from "../shared/types"
+import type { StoredMessage, StoredToolCall, ConversationIndexEntry } from "../shared/types"
+import type { LLMMessage, ToolCall } from "../shared/types"
 import { STORAGE_KEYS, DEFAULT_SETTINGS, type Settings } from "../shared/settings"
 
 // ── Persisted Conversation ───────────────────────────────────────────────────
@@ -9,18 +10,18 @@ export interface StoredConversation {
   id: string
   title: string
   tabId: number
-  tabUrl: string
-  messages: LLMMessage[]
+  tabUrl?: string
+  messages: StoredMessage[]
   createdAt: number
   updatedAt: number
 }
 
 // ── Storage Keys Type ────────────────────────────────────────────────────────
 
-interface StorageData {
-  [STORAGE_KEYS.SETTINGS]: Settings
-  [STORAGE_KEYS.CONVERSATIONS]: StoredConversation[]
-  [STORAGE_KEYS.ACTIVE_CONVERSATION]: string | null
+const CONVERSATION_KEY_PREFIX = "conversation_"
+
+function makeConversationKey(id: string): string {
+  return `${CONVERSATION_KEY_PREFIX}${id}`
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -38,34 +39,63 @@ export async function saveSettings(settings: Partial<Settings>): Promise<Setting
   return updated
 }
 
+// ── Conversation Index ────────────────────────────────────────────────────────
+
+export async function getConversationIndex(): Promise<ConversationIndexEntry[]> {
+  const result = await chrome.storage.local.get(STORAGE_KEYS.CONVERSATIONS_INDEX)
+  const index = result[STORAGE_KEYS.CONVERSATIONS_INDEX]
+  return Array.isArray(index) ? index : []
+}
+
+async function saveConversationIndex(index: ConversationIndexEntry[]): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS_INDEX]: index })
+}
+
+async function addToIndex(entry: ConversationIndexEntry): Promise<void> {
+  const index = await getConversationIndex()
+  const existingIdx = index.findIndex((e) => e.id === entry.id)
+  if (existingIdx >= 0) {
+    index[existingIdx] = entry
+  } else {
+    index.unshift(entry)
+  }
+  await saveConversationIndex(index)
+}
+
+async function removeFromIndex(id: string): Promise<void> {
+  const index = await getConversationIndex()
+  const filtered = index.filter((e) => e.id !== id)
+  await saveConversationIndex(filtered)
+}
+
 // ── Conversations ────────────────────────────────────────────────────────────
 
-export async function getConversations(): Promise<StoredConversation[]> {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.CONVERSATIONS)
-  const conversations = result[STORAGE_KEYS.CONVERSATIONS]
-  return Array.isArray(conversations) ? conversations : []
-}
-
-export async function saveConversation(conv: StoredConversation): Promise<void> {
-  const conversations = await getConversations()
-  const idx = conversations.findIndex((c) => c.id === conv.id)
-  if (idx >= 0) {
-    conversations[idx] = conv
-  } else {
-    conversations.unshift(conv)
-  }
-  await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: conversations })
-}
-
-export async function deleteConversationFromStorage(id: string): Promise<void> {
-  const conversations = await getConversations()
-  const filtered = conversations.filter((c) => c.id !== id)
-  await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: filtered })
+export async function getConversations(): Promise<ConversationIndexEntry[]> {
+  return getConversationIndex()
 }
 
 export async function getConversation(id: string): Promise<StoredConversation | undefined> {
-  const conversations = await getConversations()
-  return conversations.find((c) => c.id === id)
+  const key = makeConversationKey(id)
+  const result = await chrome.storage.local.get(key)
+  return result[key] as StoredConversation | undefined
+}
+
+export async function saveConversation(conv: StoredConversation): Promise<void> {
+  const key = makeConversationKey(conv.id)
+  await chrome.storage.local.set({ [key]: conv })
+  
+  await addToIndex({
+    id: conv.id,
+    title: conv.title,
+    createdAt: conv.createdAt,
+    updatedAt: conv.updatedAt,
+  })
+}
+
+export async function deleteConversationFromStorage(id: string): Promise<void> {
+  const key = makeConversationKey(id)
+  await chrome.storage.local.remove(key)
+  await removeFromIndex(id)
 }
 
 // ── Active Conversation ──────────────────────────────────────────────────────
@@ -94,6 +124,68 @@ export function generateTitle(message: string): string {
     title += "..."
   }
   return title || "New Conversation"
+}
+
+// ── Message Conversion Helpers ────────────────────────────────────────────────
+
+export function llmMessageToStored(msg: LLMMessage, timestamp: number): StoredMessage {
+  const content = typeof msg.content === "string"
+    ? msg.content
+    : msg.content.map((p) => (p.type === "text" ? p.text : "[image]")).join("")
+  
+  const stored: StoredMessage = {
+    role: msg.role as "user" | "assistant" | "tool",
+    content,
+    timestamp,
+  }
+  
+  if (msg.role === "tool") {
+    stored.toolCallId = msg.toolCallId
+    stored.toolName = msg.toolName
+  }
+  
+  if (msg.role === "assistant" && msg.toolCalls) {
+    stored.toolCalls = msg.toolCalls.map((tc): StoredToolCall => ({
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.arguments,
+      result: "",
+    }))
+  }
+  
+  return stored
+}
+
+export function storedMessageToLLM(msg: StoredMessage): LLMMessage {
+  const llm: LLMMessage = {
+    role: msg.role,
+    content: msg.content,
+  }
+  
+  if (msg.role === "tool") {
+    llm.toolCallId = (msg as StoredMessage & { toolCallId?: string }).toolCallId
+    llm.toolName = (msg as StoredMessage & { toolName?: string }).toolName
+  }
+  
+  if (msg.role === "assistant" && msg.toolCalls) {
+    llm.toolCalls = msg.toolCalls.map((tc): ToolCall => ({
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.arguments,
+    }))
+  }
+  
+  return llm
+}
+
+// ── Storage Usage Check ──────────────────────────────────────────────────────
+
+export async function getStorageUsage(): Promise<{ used: number; quota: number }> {
+  const data = await chrome.storage.local.getBytesInUse()
+  return {
+    used: data,
+    quota: chrome.storage.local.QUOTA_BYTES,
+  }
 }
 
 // ── Clear All Storage (for debugging) ────────────────────────────────────────

@@ -2,16 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { sendToBackground } from "../../shared/messages"
+import type { ConversationIndexEntry } from "../../shared/types"
 import type { StoredConversation } from "../../background/storage"
 
 export function useConversations() {
-  const [conversations, setConversations] = useState<StoredConversation[]>([])
+  const [conversations, setConversations] = useState<ConversationIndexEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
     try {
-      const res = await sendToBackground<null, StoredConversation[]>("conversation:list", null)
+      const res = await sendToBackground<null, ConversationIndexEntry[]>("conversation:list", null)
       if (res.success && res.data) {
         setConversations(res.data)
       }
