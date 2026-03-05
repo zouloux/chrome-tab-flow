@@ -159,12 +159,50 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       return ok(conv, message.requestId)
     }
 
+    // ── Tabs ──────────────────────────────────────────────────────────────────
+    case "tabs:list": {
+      const tabs = await chrome.tabs.query({})
+      const tabsInfo = tabs.map((tab) => ({
+        id: tab.id!,
+        title: tab.title ?? "Untitled",
+        url: tab.url,
+      }))
+      return ok(tabsInfo, message.requestId)
+    }
+
+    case "tabs:associate": {
+      const payload = message.payload as { conversationId: string; tabIds: number[] }
+
+      // Validate: max 3 tabs
+      if (payload.tabIds.length > 3) {
+        return err("Maximum 3 tabs can be associated", message.requestId)
+      }
+
+      // Validate: no duplicates
+      const uniqueTabIds = Array.from(new Set(payload.tabIds))
+      if (uniqueTabIds.length !== payload.tabIds.length) {
+        return err("Duplicate tab IDs are not allowed", message.requestId)
+      }
+
+      // Update conversation
+      const conv = await getStoredConversation(payload.conversationId)
+      if (!conv) {
+        return err("Conversation not found", message.requestId)
+      }
+
+      conv.associatedTabIds = payload.tabIds
+      conv.updatedAt = Date.now()
+      await saveConversation(conv)
+
+      return ok({ updated: true }, message.requestId)
+    }
+
     // ── LLM Streaming ────────────────────────────────────────────────────────
     case "llm:stream": {
       const payload = message.payload as {
         conversationId: string
         message: string
-        tabId?: number
+        tabIds?: number[]
       }
 
       const settings = await getSettings()
@@ -175,14 +213,53 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
 
       // Get or create conversation state
       let conv = getConversation(payload.conversationId)
+      let stored = await getStoredConversation(payload.conversationId)
+
       if (!conv) {
         // Load from storage
-        const stored = await getStoredConversation(payload.conversationId)
         if (stored) {
           conv = createConversation(stored.id, stored.tabId)
           conv.messages = stored.messages.map(storedMessageToLLM)
         } else {
           return err("Conversation not found", message.requestId)
+        }
+      }
+
+      // Determine associated tabs for this message
+      let associatedTabIds = payload.tabIds ?? []
+
+      // If no tabs provided or empty:
+      // 1. Try to use previously associated tabs from storage
+      // 2. Otherwise use current active tab
+      if (associatedTabIds.length === 0) {
+        if (stored && stored.associatedTabIds && stored.associatedTabIds.length > 0) {
+          associatedTabIds = stored.associatedTabIds
+        } else {
+          const activeTabId = await getActiveTabId()
+          if (activeTabId !== null) {
+            associatedTabIds = [activeTabId]
+          }
+        }
+      }
+
+      // Update conversation's associated tabs
+      if (stored) {
+        stored.associatedTabIds = associatedTabIds
+        await saveConversation(stored)
+      }
+
+      // Update in-memory conversation state tabId
+      if (associatedTabIds.length > 0) {
+        conv.tabId = associatedTabIds[0]!
+      }
+
+      // Inject content scripts in all associated tabs
+      for (const tabId of associatedTabIds) {
+        try {
+          const { ensureContentScript } = await import("./tools")
+          await ensureContentScript(tabId)
+        } catch (e) {
+          console.warn(`[TabFlow] Failed to inject content script in tab ${tabId}:`, e)
         }
       }
 
@@ -201,19 +278,26 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
         model: settings.defaultModel,
         maxTokens: settings.maxTokens,
         temperature: settings.temperature,
-        thinking: settings.showReasoning,
+        thinking: true,
       }
 
       // Run conversation in background (no await)
-      runConversation(conv, legacySettings, payload.message)
+      runConversation(conv, legacySettings, payload.message, associatedTabIds)
         .then(async () => {
           // Save to storage after completion, converting LLM messages to stored format
           const stored = await getStoredConversation(conv!.id)
           if (stored) {
             const now = Date.now()
-            stored.messages = conv!.messages.map((m, i) => 
+            stored.messages = conv!.messages.map((m, i) =>
               llmMessageToStored(m, stored.messages[i]?.timestamp ?? now)
             )
+
+            // Add associatedTabIds to the last user message
+            const lastUserMsgIdx = stored.messages.length - 1 - stored.messages.slice().reverse().findIndex((m) => m.role === "user")
+            if (lastUserMsgIdx >= 0 && stored.messages[lastUserMsgIdx]) {
+              stored.messages[lastUserMsgIdx]!.associatedTabIds = associatedTabIds
+            }
+
             stored.updatedAt = now
             // Auto-generate title from first user message
             if (stored.messages.length === 1 && stored.messages[0]?.role === "user") {

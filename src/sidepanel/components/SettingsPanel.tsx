@@ -489,7 +489,7 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             <Toggle
               checked={localSettings.showReasoning}
               onChange={(v) => updateSetting("showReasoning", v)}
-              label="Show reasoning/thinking"
+              label="Expand thinking by default"
             />
           </div>
 

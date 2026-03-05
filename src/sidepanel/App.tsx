@@ -8,6 +8,7 @@ import { ConversationList } from "./components/ConversationList"
 import { SettingsPanel } from "./components/SettingsPanel"
 import { useChat } from "./hooks/useChat"
 import { useConversations } from "./hooks/useConversations"
+import { useSettings } from "./hooks/useSettings"
 
 // ── Loading Spinner ────────────────────────────────────────────────────────────
 
@@ -49,16 +50,19 @@ function ErrorBanner({ message }: { message: string }) {
 interface ChatViewProps {
   conversationId: string | null
   onNewChat: () => void
+  settings?: ReturnType<typeof useSettings>["settings"]
 }
 
-function ChatView({ conversationId, onNewChat }: ChatViewProps) {
+function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
   const { messages, isStreaming, isLoading, error, sendMessage, abort } = useChat(conversationId)
   const [inputValue, setInputValue] = useState("")
+  const [selectedTabIds, setSelectedTabIds] = useState<number[]>([])
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback((tabIds?: number[]) => {
     if (!conversationId || !inputValue.trim() || isStreaming) return
-    sendMessage(inputValue)
+    sendMessage(inputValue, tabIds)
     setInputValue("")
+    setSelectedTabIds([]) // Clear selected tabs after sending
   }, [conversationId, inputValue, isStreaming, sendMessage])
 
   // Show loading spinner while loading conversation
@@ -89,7 +93,7 @@ function ChatView({ conversationId, onNewChat }: ChatViewProps) {
 
   return (
     <>
-      <MessageList messages={messages} />
+      <MessageList messages={messages} settings={settings} />
       {error && <ErrorBanner message={error} />}
       <InputArea
         value={inputValue}
@@ -98,6 +102,8 @@ function ChatView({ conversationId, onNewChat }: ChatViewProps) {
         onStop={abort}
         isStreaming={isStreaming}
         disabled={!conversationId}
+        selectedTabIds={selectedTabIds}
+        onTabsChange={setSelectedTabIds}
       />
     </>
   )
@@ -107,6 +113,7 @@ function ChatView({ conversationId, onNewChat }: ChatViewProps) {
 
 export function App() {
   const [view, setView] = useState<"chat" | "settings">("chat")
+  const { settings } = useSettings()
   const {
     conversations,
     activeId,
@@ -139,13 +146,9 @@ export function App() {
     await loadConversation(id)
   }, [loadConversation])
 
-  if (view === "settings") {
-    return <SettingsPanel onBack={() => setView("chat")} />
-  }
-
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex flex-col h-screen relative"
       style={{ backgroundColor: "#0a0a0a" }}
     >
       <Header
@@ -156,6 +159,7 @@ export function App() {
       <ChatView
         conversationId={activeId}
         onNewChat={handleNewChat}
+        settings={settings}
       />
 
       <ConversationList
@@ -165,6 +169,12 @@ export function App() {
         onDelete={deleteConversation}
         onNew={handleNewChat}
       />
+
+      {view === "settings" && (
+        <div className="absolute inset-0 z-10 h-full">
+          <SettingsPanel onBack={() => setView("chat")} />
+        </div>
+      )}
     </div>
   )
 }

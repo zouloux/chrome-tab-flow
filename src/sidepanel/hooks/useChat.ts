@@ -24,6 +24,8 @@ export interface UIMessage {
   thinking?: string
   toolCalls?: UIToolCall[]
   isStreaming?: boolean
+  /** Associated tab IDs (only for role=user) */
+  associatedTabIds?: number[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ export function useChat(conversationId: string | null) {
           id: crypto.randomUUID(),
           role: "user",
           text: msg.content,
+          associatedTabIds: msg.associatedTabIds,
         })
       } else if (msg.role === "assistant") {
         const toolCalls: UIToolCall[] = (msg.toolCalls ?? []).map((tc) => ({
@@ -281,7 +284,7 @@ export function useChat(conversationId: string | null) {
 
   // ── Send a message ────────────────────────────────────────────────────────
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, tabIds?: number[]) => {
     if (!conversationId || !text.trim()) return
 
     setError(null)
@@ -289,7 +292,7 @@ export function useChat(conversationId: string | null) {
     // Add user message immediately to UI
     setMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), role: "user", text: text.trim() },
+      { id: crypto.randomUUID(), role: "user", text: text.trim(), associatedTabIds: tabIds },
     ])
 
     setIsStreaming(true)
@@ -297,9 +300,9 @@ export function useChat(conversationId: string | null) {
 
     try {
       const res = await sendToBackground<
-        { conversationId: string; message: string },
+        { conversationId: string; message: string; tabIds?: number[] },
         { started: boolean }
-      >("llm:stream", { conversationId, message: text.trim() })
+      >("llm:stream", { conversationId, message: text.trim(), tabIds })
 
       if (!res.success) {
         setError(res.error ?? "Failed to start stream")

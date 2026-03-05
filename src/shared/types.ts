@@ -48,6 +48,8 @@ export type ContentPart =
 export interface LLMMessage {
   role: "user" | "assistant" | "system" | "tool"
   content: string | ContentPart[]
+  /** For role=assistant: thinking/reasoning content */
+  thinking?: string
   /** For role=tool: the tool call id this result belongs to */
   toolCallId?: string
   /** For role=tool: the tool name */
@@ -78,6 +80,12 @@ export interface StreamEvent {
 
 // ── Stored Conversation types ────────────────────────────────────────────────
 
+export interface TabInfo {
+  id: number
+  title: string
+  url?: string
+}
+
 export interface StoredToolCall {
   id: string
   name: string
@@ -93,6 +101,8 @@ export interface StoredMessage {
   toolCallId?: string
   toolName?: string
   timestamp: number
+  /** Associated tab IDs (only for role=user) */
+  associatedTabIds?: number[]
 }
 
 export interface ConversationIndexEntry {

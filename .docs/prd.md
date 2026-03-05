@@ -16,7 +16,6 @@ TabFlow is a Chrome extension that adds an AI-powered side panel for controlling
 - Chat-style interface with streaming AI responses
 - Supports markdown rendering in responses
 - Shows reasoning/thinking when enabled
-- Send with Cmd+Enter, newline with Enter
 - Stop button to abort AI generation
 - User can type next prompt while AI is responding
 

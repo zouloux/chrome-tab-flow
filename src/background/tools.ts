@@ -39,7 +39,7 @@ async function injectContentScript(tabId: number): Promise<boolean> {
   }
 }
 
-async function ensureContentScript(tabId: number): Promise<boolean> {
+export async function ensureContentScript(tabId: number): Promise<boolean> {
   if (await isContentScriptReady(tabId)) {
     return true
   }
@@ -52,11 +52,15 @@ async function ensureContentScript(tabId: number): Promise<boolean> {
 export async function executeTool(
   name: string,
   params: unknown,
-  tabId: number
+  defaultTabId: number
 ): Promise<ToolResult<unknown>> {
   if (!isValidTool(name)) {
     return { success: false, error: `Unknown tool: ${name}` }
   }
+
+  // Extract tabId from params if provided, otherwise use default
+  const paramsObj = params as { tabId?: number; [key: string]: unknown }
+  const tabId = paramsObj.tabId ?? defaultTabId
 
   console.log("[TabFlow] orchestrator: executing tool", name, "in tab", tabId)
 

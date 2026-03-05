@@ -30,6 +30,8 @@ export interface StoredConversation {
   messages: StoredMessage[]
   createdAt: number
   updatedAt: number
+  /** Currently associated tab IDs for this conversation */
+  associatedTabIds?: number[]
 }
 
 // ── Storage Keys Type ────────────────────────────────────────────────────────
@@ -99,6 +101,9 @@ export async function saveSettings(settings: Partial<Settings>): Promise<Setting
   const current = await getSettings()
   const updated = { ...current, ...settings }
 
+  const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS)
+  const stored = result[STORAGE_KEYS.SETTINGS] as StoredSettings | undefined
+
   const toStore: StoredSettings = {
     defaultProvider: updated.defaultProvider,
     defaultModel: updated.defaultModel,
@@ -110,6 +115,7 @@ export async function saveSettings(settings: Partial<Settings>): Promise<Setting
   for (const field of API_KEY_FIELDS) {
     const value = updated[field]
     const provider = providerFromKeyField(field)
+    const encField = `${field}Enc` as keyof StoredSettings
     
     if (value && value.length > 0) {
       const encrypted = await encryptApiKey(value)
@@ -118,6 +124,14 @@ export async function saveSettings(settings: Partial<Settings>): Promise<Setting
       else if (field === "geminiApiKey") toStore.geminiApiKeyEnc = encrypted
       else if (field === "openrouterApiKey") toStore.openrouterApiKeyEnc = encrypted
       setDecryptedKey(provider, value)
+    } else if (stored?.[encField]) {
+      const existingEncrypted = stored[encField] as string | undefined
+      if (existingEncrypted) {
+        if (field === "anthropicApiKey") toStore.anthropicApiKeyEnc = existingEncrypted
+        else if (field === "openaiApiKey") toStore.openaiApiKeyEnc = existingEncrypted
+        else if (field === "geminiApiKey") toStore.geminiApiKeyEnc = existingEncrypted
+        else if (field === "openrouterApiKey") toStore.openrouterApiKeyEnc = existingEncrypted
+      }
     }
   }
 
@@ -229,6 +243,10 @@ export function llmMessageToStored(msg: LLMMessage, timestamp: number): StoredMe
     timestamp,
   }
   
+  if (msg.thinking) {
+    stored.thinking = msg.thinking
+  }
+  
   if (msg.role === "tool") {
     stored.toolCallId = msg.toolCallId
     stored.toolName = msg.toolName
@@ -252,9 +270,13 @@ export function storedMessageToLLM(msg: StoredMessage): LLMMessage {
     content: msg.content,
   }
   
+  if (msg.thinking) {
+    llm.thinking = msg.thinking
+  }
+  
   if (msg.role === "tool") {
-    llm.toolCallId = (msg as StoredMessage & { toolCallId?: string }).toolCallId
-    llm.toolName = (msg as StoredMessage & { toolName?: string }).toolName
+    llm.toolCallId = msg.toolCallId
+    llm.toolName = msg.toolName
   }
   
   if (msg.role === "assistant" && msg.toolCalls) {

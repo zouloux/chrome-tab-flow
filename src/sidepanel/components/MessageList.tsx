@@ -4,6 +4,7 @@ import { useAutoScroll } from "../hooks/useAutoScroll"
 import { UserMessage } from "./UserMessage"
 import { AssistantMessage } from "./AssistantMessage"
 import type { UIMessage } from "../hooks/useChat"
+import type { Settings } from "../../shared/settings"
 
 // ── Empty State ───────────────────────────────────────────────────────────────
 
@@ -30,9 +31,10 @@ function EmptyState() {
 
 interface MessageListProps {
   messages: UIMessage[]
+  settings?: Settings
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, settings }: MessageListProps) {
   const { scrollRef, anchorRef } = useAutoScroll([messages.length, messages[messages.length - 1]?.text])
 
   return (
@@ -48,10 +50,10 @@ export function MessageList({ messages }: MessageListProps) {
           {messages.map((msg) =>
             msg.role === "user" ? (
               <div key={msg.id} className="px-1">
-                <UserMessage text={msg.text} />
+                <UserMessage text={msg.text} associatedTabIds={msg.associatedTabIds} />
               </div>
             ) : (
-              <AssistantMessage key={msg.id} message={msg} />
+              <AssistantMessage key={msg.id} message={msg} settings={settings} />
             )
           )}
         </div>

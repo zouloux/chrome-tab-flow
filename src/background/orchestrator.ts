@@ -51,7 +51,7 @@ function isLegacySettings(s: Settings | LegacySettings): s is LegacySettings {
   return "apiKey" in s
 }
 
-function buildLLMConfig(settings: Settings | LegacySettings) {
+async function buildLLMConfig(settings: Settings | LegacySettings, associatedTabIds?: number[]) {
   let provider: string
   let model: string
   let apiKey: string
@@ -82,13 +82,30 @@ function buildLLMConfig(settings: Settings | LegacySettings) {
     }
   }
 
+  // Get tab info for system prompt
+  let tabsInfo: import("../shared/types").TabInfo[] | undefined
+  if (associatedTabIds && associatedTabIds.length > 0) {
+    try {
+      const tabs = await chrome.tabs.query({})
+      tabsInfo = tabs
+        .filter((tab) => tab.id && associatedTabIds.includes(tab.id))
+        .map((tab) => ({
+          id: tab.id!,
+          title: tab.title ?? "Untitled",
+          url: tab.url,
+        }))
+    } catch (e) {
+      console.warn("[TabFlow] Failed to fetch tab info for system prompt:", e)
+    }
+  }
+
   return {
     provider: provider as "anthropic" | "openai" | "gemini" | "openrouter",
     apiKey,
     model,
     maxTokens: settings.maxTokens,
     temperature: settings.temperature,
-    systemPrompt: buildSystemPrompt(),
+    systemPrompt: buildSystemPrompt(tabsInfo),
   }
 }
 
@@ -97,16 +114,22 @@ function buildLLMConfig(settings: Settings | LegacySettings) {
 export async function runConversation(
   conversation: ConversationState,
   settings: Settings | LegacySettings,
-  userMessage: string
+  userMessage: string,
+  associatedTabIds?: number[]
 ): Promise<void> {
   const tools = getToolsForLLM()
-  const config = buildLLMConfig(settings)
+  const config = await buildLLMConfig(settings, associatedTabIds)
 
   // Add user message
   conversation.messages.push({
     role: "user",
     content: userMessage,
   })
+
+  // Use first tab for tool execution (for backward compatibility)
+  if (associatedTabIds && associatedTabIds.length > 0) {
+    conversation.tabId = associatedTabIds[0]!
+  }
 
   // Create abort controller
   const abortController = new AbortController()
@@ -137,10 +160,12 @@ async function runLLMLoop(
     shouldContinue = false
     conversation.pendingToolCalls = []
 
-    // Stream LLM response
+    let textContent = ""
+    let thinkingContent = ""
+
     for await (const event of streamLLM(config, conversation.messages, tools, {
       signal,
-      thinking: config.temperature === 1, // Enable thinking mode for models that support it
+      thinking: config.temperature === 1,
     })) {
       if (signal.aborted) {
         sendDone(conversation.id)
@@ -149,37 +174,33 @@ async function runLLMLoop(
 
       sendChunk(conversation.id, event)
 
+      if (event.type === "text" && event.content) {
+        textContent += event.content
+      }
+
+      if (event.type === "thinking" && event.content) {
+        thinkingContent += event.content
+      }
+
       if (event.type === "tool_call" && event.toolCall) {
         conversation.pendingToolCalls.push(event.toolCall)
       }
 
       if (event.type === "tool_calls_done") {
-        // Execute all pending tool calls
         const toolResults = await executeToolCalls(
           conversation.pendingToolCalls,
           conversation.tabId
         )
 
-        // Append assistant message with tool calls
-        const lastAssistantIdx = conversation.messages.length - 1 - conversation.messages.slice().reverse().findIndex((m) => m.role === "assistant")
-        const lastAssistantMsg = lastAssistantIdx >= 0 ? conversation.messages[lastAssistantIdx] : undefined
-        if (!lastAssistantMsg || !lastAssistantMsg.toolCalls) {
-          // Create new assistant message
-          const textContent = conversation.messages
-            .filter((m) => m.role === "assistant")
-            .reduce((acc, m) => {
-              if (typeof m.content === "string") return acc + m.content
-              return acc
-            }, "")
+        conversation.messages.push({
+          role: "assistant",
+          content: textContent,
+          thinking: thinkingContent || undefined,
+          toolCalls: conversation.pendingToolCalls.length > 0 
+            ? conversation.pendingToolCalls 
+            : undefined,
+        })
 
-          conversation.messages.push({
-            role: "assistant",
-            content: textContent || "",
-            toolCalls: conversation.pendingToolCalls,
-          })
-        }
-
-        // Append tool results
         for (const result of toolResults) {
           conversation.messages.push({
             role: "tool",
@@ -189,19 +210,16 @@ async function runLLMLoop(
           })
         }
 
-        // Continue the loop to get next LLM response
         shouldContinue = true
         break
       }
 
       if (event.type === "done") {
-        // Finalize assistant message
-        const lastUserIdx = conversation.messages.length - 1 - conversation.messages.slice().reverse().findIndex((m) => m.role === "user")
-        const assistantMessages = conversation.messages.slice(lastUserIdx + 1)
-        
-        // If we had text content, ensure it's captured
-        // The side panel handles assembling the streamed text
-        
+        conversation.messages.push({
+          role: "assistant",
+          content: textContent,
+          thinking: thinkingContent || undefined,
+        })
         sendDone(conversation.id)
       }
 

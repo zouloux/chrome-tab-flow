@@ -22,6 +22,9 @@ export type MessageType =
   | "conversation:delete"
   | "conversation:rename"
   | "conversation:data"
+  // Tabs
+  | "tabs:list"
+  | "tabs:associate"
   // Settings
   | "settings:get"
   | "settings:set"

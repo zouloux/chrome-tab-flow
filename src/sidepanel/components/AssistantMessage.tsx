@@ -1,37 +1,30 @@
 // Assistant message component - markdown, thinking block, tool calls
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Markdown } from "./Markdown"
 import { ToolCallIndicator } from "./ToolCallIndicator"
+import { IconSpinner, IconChevron, IconBrain } from "./Icons"
 import type { UIMessage } from "../hooks/useChat"
-
-// ── Icons ────────────────────────────────────────────────────────────────────
-
-function IconChevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="10" height="10"
-      viewBox="0 0 10 10"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 150ms" }}
-    >
-      <path d="M2 3.5l3 3 3-3" />
-    </svg>
-  )
-}
+import type { Settings } from "../../shared/settings"
 
 // ── Thinking Block ────────────────────────────────────────────────────────────
 
 interface ThinkingBlockProps {
   content: string
   isStreaming?: boolean
+  defaultExpanded?: boolean
 }
 
-function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
-  const [expanded, setExpanded] = useState(false)
+function ThinkingBlock({ content, isStreaming, defaultExpanded }: ThinkingBlockProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false)
+
+  useEffect(() => {
+    if (defaultExpanded !== undefined) {
+      setExpanded(defaultExpanded)
+    }
+  }, [defaultExpanded])
+
+  const isThinking = isStreaming
 
   return (
     <div
@@ -39,19 +32,28 @@ function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
       style={{ border: "1px solid #2a2a2a" }}
     >
       <button
-        className="flex items-center gap-2 w-full px-2 py-1.5 text-left"
-        style={{ backgroundColor: "#141414", color: "#666666" }}
+        className="flex items-center gap-2 w-full px-2 py-1.5 text-left transition-colors"
+        style={{ backgroundColor: "#141414", color: "#888888" }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e"
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#141414"
+        }}
         onClick={() => setExpanded((v) => !v)}
       >
-        <span className="italic flex-1">
-          {isStreaming && !expanded ? "Thinking…" : "Thinking"}
+        <span style={{ color: isThinking ? "#60a5fa" : "#888888" }}>
+          {isThinking ? <IconSpinner /> : <IconBrain />}
+        </span>
+        <span className="flex-1 text-left">
+          {isThinking ? "Thinking..." : "Thoughts"}
         </span>
         <IconChevron open={expanded} />
       </button>
 
       {expanded && (
         <div
-          className="px-2 py-1.5 italic whitespace-pre-wrap break-words"
+          className="px-2 py-1.5 whitespace-pre-wrap break-words"
           style={{
             backgroundColor: "#0a0a0a",
             color: "#666666",
@@ -89,15 +91,16 @@ function StreamingCursor() {
 
 interface AssistantMessageProps {
   message: UIMessage
+  settings?: Settings
 }
 
-export function AssistantMessage({ message }: AssistantMessageProps) {
+export function AssistantMessage({ message, settings }: AssistantMessageProps) {
   const hasThinking = message.thinking && message.thinking.length > 0
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0
   const hasText = message.text && message.text.length > 0
 
-  // Empty streaming message (e.g. only a cursor shown initially)
-  const showCursor = message.isStreaming && !hasText && !hasThinking && !hasToolCalls
+  const showCursor =
+    message.isStreaming && !hasText && !hasThinking && !hasToolCalls
 
   return (
     <div className="message-enter px-3 py-2.5">
@@ -108,15 +111,14 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
         TabFlow
       </div>
 
-      {/* Thinking block */}
       {hasThinking && (
         <ThinkingBlock
           content={message.thinking!}
           isStreaming={message.isStreaming}
+          defaultExpanded={settings?.showReasoning}
         />
       )}
 
-      {/* Tool calls */}
       {hasToolCalls && (
         <div className="mb-2">
           {message.toolCalls!.map((tc) => (
@@ -125,7 +127,6 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
         </div>
       )}
 
-      {/* Main text */}
       {hasText && (
         <div style={{ color: "#e5e5e5" }}>
           <Markdown>{message.text}</Markdown>
@@ -133,7 +134,6 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
         </div>
       )}
 
-      {/* Initial cursor while waiting for first token */}
       {showCursor && (
         <div style={{ height: "16px" }}>
           <StreamingCursor />

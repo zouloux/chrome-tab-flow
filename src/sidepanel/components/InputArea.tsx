@@ -1,6 +1,8 @@
-// Input area - textarea with send/stop button
+// Input area - textarea with send/stop button and tab selection
 
-import { useRef, useEffect, useCallback } from "react"
+import { useRef, useEffect, useCallback, useState } from "react"
+import { sendToBackground } from "../../shared/messages"
+import type { TabInfo } from "../../shared/types"
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 
@@ -20,19 +22,74 @@ function IconStop() {
   )
 }
 
+function IconPlus() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="8" y1="3" x2="8" y2="13" />
+      <line x1="3" y1="8" x2="13" y2="8" />
+    </svg>
+  )
+}
+
+function IconClose() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="4" y1="4" x2="12" y2="12" />
+      <line x1="12" y1="4" x2="4" y2="12" />
+    </svg>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface InputAreaProps {
   value: string
   onChange: (value: string) => void
-  onSend: () => void
+  onSend: (tabIds?: number[]) => void
   onStop: () => void
   isStreaming: boolean
   disabled?: boolean
+  selectedTabIds: number[]
+  onTabsChange: (tabIds: number[]) => void
 }
 
-export function InputArea({ value, onChange, onSend, onStop, isStreaming, disabled }: InputAreaProps) {
+export function InputArea({
+  value,
+  onChange,
+  onSend,
+  onStop,
+  isStreaming,
+  disabled,
+  selectedTabIds,
+  onTabsChange,
+}: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [showTabPicker, setShowTabPicker] = useState(false)
+  const [availableTabs, setAvailableTabs] = useState<TabInfo[]>([])
+  const [activeTab, setActiveTab] = useState<TabInfo | null>(null)
+
+  // Fetch available tabs
+  useEffect(() => {
+    async function fetchTabs() {
+      try {
+        const res = await sendToBackground<null, TabInfo[]>("tabs:list", null)
+        if (res.success && res.data) {
+          setAvailableTabs(res.data)
+          // Get current active tab
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+          if (tab && tab.id) {
+            const activeTabInfo = res.data.find((t) => t.id === tab.id)
+            if (activeTabInfo) {
+              setActiveTab(activeTabInfo)
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[TabFlow] InputArea: failed to fetch tabs", e)
+      }
+    }
+    fetchTabs()
+  }, [])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -43,24 +100,93 @@ export function InputArea({ value, onChange, onSend, onStop, isStreaming, disabl
     el.style.height = `${newHeight}px`
   }, [value])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault()
-      if (!isStreaming && value.trim()) {
-        onSend()
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if ( e.key === "Enter" && !e.shiftKey )
+      {
+        e.preventDefault()
+        if (!isStreaming && value.trim()) {
+          onSend(selectedTabIds)
+        }
       }
-    }
-    // Enter alone = newline (default behavior, no override needed)
-  }, [isStreaming, value, onSend])
+      // Enter alone = newline (default behavior, no override needed)
+    },
+    [isStreaming, value, onSend, selectedTabIds]
+  )
+
+  const handleToggleTab = useCallback(
+    (tabId: number) => {
+      if (selectedTabIds.includes(tabId)) {
+        // Remove tab
+        onTabsChange(selectedTabIds.filter((id) => id !== tabId))
+      } else {
+        // Add tab (max 3)
+        if (selectedTabIds.length < 3) {
+          onTabsChange([...selectedTabIds, tabId])
+        }
+      }
+    },
+    [selectedTabIds, onTabsChange]
+  )
+
+  const handleRemoveTab = useCallback(
+    (tabId: number) => {
+      onTabsChange(selectedTabIds.filter((id) => id !== tabId))
+    },
+    [selectedTabIds, onTabsChange]
+  )
 
   const canSend = !isStreaming && value.trim().length > 0
   const showStop = isStreaming
 
+  // Get selected tabs info
+  const selectedTabsInfo = availableTabs.filter((tab) => selectedTabIds.includes(tab.id))
+
+  // Sort tabs: active tab first
+  const sortedTabs = [...availableTabs].sort((a, b) => {
+    if (activeTab && a.id === activeTab.id) return -1
+    if (activeTab && b.id === activeTab.id) return 1
+    return 0
+  })
+
   return (
-    <div
-      className="flex-shrink-0 px-2 py-2"
-      style={{ borderTop: "1px solid #2a2a2a", backgroundColor: "#0a0a0a" }}
-    >
+    <div className="flex-shrink-0 px-2 py-2" style={{ borderTop: "1px solid #2a2a2a", backgroundColor: "#0a0a0a" }}>
+      {/* Selected tabs badges */}
+      {selectedTabsInfo.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {selectedTabsInfo.map((tab) => (
+            <div
+              key={tab.id}
+              className="text-xs px-2 py-1 rounded flex items-center gap-1.5"
+              style={{
+                backgroundColor: "#1e1e1e",
+                color: "#a0a0a0",
+                border: "1px solid #2a2a2a",
+              }}
+            >
+              <span>{tab.title.length > 25 ? `${tab.title.slice(0, 25)}...` : tab.title}</span>
+              <button
+                onClick={() => handleRemoveTab(tab.id)}
+                className="flex items-center justify-center transition-colors"
+                style={{
+                  width: "14px",
+                  height: "14px",
+                  color: "#666666",
+                }}
+                onMouseEnter={(e) => {
+                  ;(e.currentTarget as HTMLButtonElement).style.color = "#ef4444"
+                }}
+                onMouseLeave={(e) => {
+                  ;(e.currentTarget as HTMLButtonElement).style.color = "#666666"
+                }}
+              >
+                <IconClose />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div
         className="flex items-end gap-2 rounded-lg px-2 py-1.5"
         style={{
@@ -97,9 +223,34 @@ export function InputArea({ value, onChange, onSend, onStop, isStreaming, disabl
           }}
         />
 
+        {/* Add tab button */}
+        {selectedTabIds.length < 3 && (
+          <button
+            onClick={() => setShowTabPicker(!showTabPicker)}
+            title="Add tab"
+            className="flex-shrink-0 flex items-center justify-center rounded-md transition-colors"
+            style={{
+              width: "24px",
+              height: "24px",
+              marginBottom: "1px",
+              backgroundColor: "#1e1e1e",
+              color: "#a0a0a0",
+              border: "1px solid #2a2a2a",
+            }}
+            onMouseEnter={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a2a2a"
+            }}
+            onMouseLeave={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e"
+            }}
+          >
+            <IconPlus />
+          </button>
+        )}
+
         {/* Send / Stop button */}
         <button
-          onClick={showStop ? onStop : onSend}
+          onClick={showStop ? onStop : () => onSend(selectedTabIds)}
           disabled={!showStop && !canSend}
           title={showStop ? "Stop generation" : "Send (⌘↵)"}
           className="flex-shrink-0 flex items-center justify-center rounded-md transition-colors"
@@ -107,11 +258,7 @@ export function InputArea({ value, onChange, onSend, onStop, isStreaming, disabl
             width: "28px",
             height: "28px",
             marginBottom: "1px",
-            backgroundColor: showStop
-              ? "#ef4444"
-              : canSend
-              ? "#3b82f6"
-              : "#1e1e1e",
+            backgroundColor: showStop ? "#ef4444" : canSend ? "#3b82f6" : "#1e1e1e",
             color: showStop || canSend ? "#fff" : "#666666",
             cursor: showStop || canSend ? "pointer" : "not-allowed",
             border: "none",
@@ -122,9 +269,77 @@ export function InputArea({ value, onChange, onSend, onStop, isStreaming, disabl
         </button>
       </div>
 
+      {/* Tab picker dropdown */}
+      {showTabPicker && (
+        <div
+          className="mt-2 rounded-lg overflow-hidden"
+          style={{
+            backgroundColor: "#141414",
+            border: "1px solid #2a2a2a",
+            maxHeight: "200px",
+            overflowY: "auto",
+          }}
+        >
+          {sortedTabs.map((tab) => {
+            const isSelected = selectedTabIds.includes(tab.id)
+            const isActive = activeTab && activeTab.id === tab.id
+            const canSelect = !isSelected && selectedTabIds.length < 3
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  if (canSelect || isSelected) {
+                    handleToggleTab(tab.id)
+                  }
+                }}
+                disabled={!canSelect && !isSelected}
+                className="w-full px-3 py-2 text-left text-xs flex items-center gap-2 transition-colors"
+                style={{
+                  backgroundColor: isSelected ? "#1e1e1e" : "transparent",
+                  color: isSelected ? "#60a5fa" : "#e5e5e5",
+                  borderBottom: "1px solid #1a1a1a",
+                  cursor: canSelect || isSelected ? "pointer" : "not-allowed",
+                  opacity: !canSelect && !isSelected ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (canSelect || isSelected) {
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e"
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) {
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"
+                  }
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  readOnly
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    accentColor: "#3b82f6",
+                  }}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="truncate">
+                    {tab.title}
+                    {isActive && (
+                      <span style={{ color: "#666666", marginLeft: "4px" }}>(current)</span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Hint */}
       <div className="text-center mt-1" style={{ color: "#444444", fontSize: "10px" }}>
-        ↵ new line · ⌘↵ send
+        ⇧↵ new line · ↵ send
       </div>
     </div>
   )

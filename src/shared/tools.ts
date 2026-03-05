@@ -43,11 +43,21 @@ const enumSchema = <T extends string>(values: T[], description?: string): JSONSc
   ...(description ? { description } : {}),
 })
 
+// Helper to add tabId parameter to tool schemas
+const addTabIdParam = (schema: JSONSchema): JSONSchema => {
+  const props = { ...(schema.properties || {}) }
+  props.tabId = numberSchema("Optional tab ID to execute this tool on. If not provided, uses the first associated tab.")
+  return {
+    ...schema,
+    properties: props,
+  }
+}
+
 // ── Tool JSON Schemas ──────────────────────────────────────────────────────────
 
 export const toolSchemas = {
   // Page Reading
-  page_get_content: objectSchema(
+  page_get_content: addTabIdParam(objectSchema(
     {
       format: enumSchema(["text", "html", "markdown"], "Output format for the content"),
       selector: stringSchema("Optional CSS selector to scope content extraction"),
@@ -55,59 +65,59 @@ export const toolSchemas = {
     },
     undefined,
     "Get cleaned page text content (or HTML subset)"
-  ),
+  )),
 
-  page_get_metadata: objectSchema(
+  page_get_metadata: addTabIdParam(objectSchema(
     {},
     [],
     "Get page title, URL, meta tags, and OpenGraph data"
-  ),
+  )),
 
-  page_query_selector: objectSchema(
+  page_query_selector: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector to query"),
       limit: numberSchema("Maximum number of elements to return"),
     },
     ["selector"],
     "Query elements matching a CSS selector, return their text/attributes"
-  ),
+  )),
 
-  page_get_element_info: objectSchema(
+  page_get_element_info: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the target element"),
     },
     ["selector"],
     "Get detailed info about a specific element"
-  ),
+  )),
 
   // Page Interaction
-  page_click: objectSchema(
+  page_click: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the element to click"),
     },
     ["selector"],
     "Click an element"
-  ),
+  )),
 
-  page_fill: objectSchema(
+  page_fill: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the input/textarea"),
       value: stringSchema("Value to fill"),
     },
     ["selector", "value"],
     "Fill an input or textarea"
-  ),
+  )),
 
-  page_select: objectSchema(
+  page_select: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the <select> element"),
       value: stringSchema("Value of the option to select"),
     },
     ["selector", "value"],
     "Select an option in a <select>"
-  ),
+  )),
 
-  page_scroll: objectSchema(
+  page_scroll: addTabIdParam(objectSchema(
     {
       direction: enumSchema(["up", "down", "left", "right"], "Scroll direction"),
       amount: numberSchema("Pixels to scroll (default: viewport size)"),
@@ -115,27 +125,27 @@ export const toolSchemas = {
     },
     ["direction"],
     "Scroll page or element"
-  ),
+  )),
 
-  page_navigate: objectSchema(
+  page_navigate: addTabIdParam(objectSchema(
     {
       url: stringSchema("URL to navigate to"),
     },
     ["url"],
     "Navigate to a URL"
-  ),
+  )),
 
-  page_wait: objectSchema(
+  page_wait: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector to wait for"),
       timeout: numberSchema("Maximum wait time in milliseconds"),
     },
     [],
     "Wait for an element to appear or a timeout"
-  ),
+  )),
 
   // DOM Manipulation
-  dom_modify_attribute: objectSchema(
+  dom_modify_attribute: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the target element"),
       attribute: stringSchema("Attribute name to set or remove"),
@@ -143,9 +153,9 @@ export const toolSchemas = {
     },
     ["selector", "attribute"],
     "Set/remove an attribute on an element"
-  ),
+  )),
 
-  dom_modify_style: objectSchema(
+  dom_modify_style: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the target element"),
       styles: objectSchema(
@@ -156,9 +166,9 @@ export const toolSchemas = {
     },
     ["selector", "styles"],
     "Modify inline styles"
-  ),
+  )),
 
-  dom_modify_class: objectSchema(
+  dom_modify_class: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the target element"),
       action: enumSchema(["add", "remove", "toggle"], "Class manipulation action"),
@@ -166,9 +176,9 @@ export const toolSchemas = {
     },
     ["selector", "action", "classes"],
     "Add/remove/toggle CSS classes"
-  ),
+  )),
 
-  dom_insert_html: objectSchema(
+  dom_insert_html: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the reference element"),
       position: enumSchema(
@@ -179,38 +189,38 @@ export const toolSchemas = {
     },
     ["selector", "position", "html"],
     "Insert HTML adjacent to an element"
-  ),
+  )),
 
-  dom_remove: objectSchema(
+  dom_remove: addTabIdParam(objectSchema(
     {
       selector: stringSchema("CSS selector for the element to remove"),
     },
     ["selector"],
     "Remove an element from the DOM"
-  ),
+  )),
 
   // Visual
-  page_screenshot: objectSchema(
+  page_screenshot: addTabIdParam(objectSchema(
     {
       selector: stringSchema("Optional CSS selector to capture a specific element"),
       fullPage: booleanSchema("Capture the full scrollable page"),
     },
     [],
     "Capture visible viewport or element screenshot"
-  ),
+  )),
 
   // YouTube
-  youtube_get_transcript: objectSchema(
+  youtube_get_transcript: addTabIdParam(objectSchema(
     {},
     [],
     "Extract video transcript/captions"
-  ),
+  )),
 
-  youtube_get_video_info: objectSchema(
+  youtube_get_video_info: addTabIdParam(objectSchema(
     {},
     [],
     "Get video title, channel, description, duration"
-  ),
+  )),
 } as const
 
 // ── Tool Definitions (info only, execution handled separately) ────────────────
@@ -313,12 +323,13 @@ export const toolDefinitions: ToolInfo[] = [
   },
 
   // Visual
-  {
-    name: "page_screenshot",
-    description: "Capture visible viewport or element screenshot",
-    category: "visual",
-    parameters: toolSchemas.page_screenshot,
-  },
+  // FIXME : Not working yet
+  // {
+  //   name: "page_screenshot",
+  //   description: "Capture visible viewport or element screenshot",
+  //   category: "visual",
+  //   parameters: toolSchemas.page_screenshot,
+  // },
 
   // YouTube
   {
