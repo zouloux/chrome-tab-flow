@@ -43,7 +43,7 @@ function ThinkingBlock({ content, isStreaming, defaultExpanded }: ThinkingBlockP
         onClick={() => setExpanded((v) => !v)}
       >
         <span style={{ color: isThinking ? "#60a5fa" : "#888888" }}>
-          {isThinking ? <IconSpinner /> : <IconBrain />}
+          {isThinking ? <IconSpinner animated /> : <IconBrain />}
         </span>
         <span className="flex-1 text-left">
           {isThinking ? "Thinking..." : "Thoughts"}

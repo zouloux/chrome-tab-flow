@@ -89,3 +89,19 @@ export function IconWrench() {
     </svg>
   )
 }
+
+export function IconSend() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 13V3M4 7l4-4 4 4" />
+    </svg>
+  )
+}
+
+export function IconStop() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+    </svg>
+  )
+}

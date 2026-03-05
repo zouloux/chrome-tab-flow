@@ -19,6 +19,7 @@ export type MessageType =
   | "conversation:new"
   | "conversation:list"
   | "conversation:load"
+  | "conversation:save"
   | "conversation:delete"
   | "conversation:rename"
   | "conversation:data"

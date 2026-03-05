@@ -137,7 +137,7 @@ export async function runConversation(
   conversation.pendingToolCalls = []
 
   try {
-    await runLLMLoop(conversation, config, tools, abortController.signal)
+    await runLLMLoop(conversation, config, tools, abortController.signal, associatedTabIds)
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : String(e)
     sendDone(conversation.id, errorMsg)
@@ -152,7 +152,8 @@ async function runLLMLoop(
   conversation: ConversationState,
   config: ReturnType<typeof buildLLMConfig>,
   tools: ReturnType<typeof getToolsForLLM>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  associatedTabIds?: number[]
 ): Promise<void> {
   let shouldContinue = true
 
@@ -187,11 +188,37 @@ async function runLLMLoop(
       }
 
       if (event.type === "tool_calls_done") {
-        const toolResults = await executeToolCalls(
-          conversation.pendingToolCalls,
-          conversation.tabId,
-          associatedTabIds
-        )
+        for (const tc of conversation.pendingToolCalls) {
+          try {
+            const result = await executeTool(tc.name, tc.arguments, conversation.tabId, associatedTabIds)
+            const resultStr = JSON.stringify(result)
+            sendChunk(conversation.id, {
+              type: "tool_result",
+              toolResult: { id: tc.id, result: resultStr },
+            })
+            conversation.messages.push({
+              role: "tool",
+              toolCallId: tc.id,
+              toolName: tc.name,
+              content: resultStr,
+            })
+          } catch (e) {
+            const errorResult = JSON.stringify({
+              success: false,
+              error: e instanceof Error ? e.message : String(e),
+            })
+            sendChunk(conversation.id, {
+              type: "tool_result",
+              toolResult: { id: tc.id, result: errorResult },
+            })
+            conversation.messages.push({
+              role: "tool",
+              toolCallId: tc.id,
+              toolName: tc.name,
+              content: errorResult,
+            })
+          }
+        }
 
         conversation.messages.push({
           role: "assistant",
@@ -201,15 +228,6 @@ async function runLLMLoop(
             ? conversation.pendingToolCalls 
             : undefined,
         })
-
-        for (const result of toolResults) {
-          conversation.messages.push({
-            role: "tool",
-            toolCallId: result.toolCallId,
-            toolName: result.toolName,
-            content: result.content,
-          })
-        }
 
         shouldContinue = true
         break

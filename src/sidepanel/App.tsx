@@ -119,7 +119,7 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
   useEffect(() => {
     if (!conversationId || primaryTabLocked || messages.length > 0) return
 
-    const listener = (activeInfo: chrome.tabs.TabActiveInfo) => {
+    const listener = (activeInfo: { tabId: number; windowId: number }) => {
       setPrimaryTabId(activeInfo.tabId)
       chrome.tabs.get(activeInfo.tabId).then(tab => {
         if (tab.id) {
@@ -136,7 +136,7 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
     return () => chrome.tabs.onActivated.removeListener(listener)
   }, [conversationId, primaryTabLocked, messages.length])
 
-  const handleSend = useCallback(async (tabIds?: number[]) => {
+  const handleSend = useCallback(async () => {
     if (!conversationId || !inputValue.trim() || isStreaming) return
 
     // Lock primary tab on first message
@@ -168,7 +168,7 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
   }, [])
 
   const handleAddTab = useCallback((tabId: number) => {
-    if (additionalTabIds.length < 2 && !additionalTabIds.includes(tabId)) {
+    if (additionalTabIds.length < 3 && !additionalTabIds.includes(tabId)) {
       setAdditionalTabIds(prev => [...prev, tabId])
 
       // Fetch tab info
@@ -215,16 +215,18 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
 
   const hasMessages = messages.length > 0
 
+  const excludeTabIds = [primaryTabId, ...additionalTabIds].filter((id): id is number => id !== null)
+
   return (
     <>
-      {hasMessages && primaryTabInfo && (
-        <ConversationHeader
-          primaryTab={primaryTabInfo}
-          additionalTabs={additionalTabsInfo}
-          onRemoveAdditionalTab={handleRemoveAdditionalTab}
-          primaryTabLocked={primaryTabLocked}
-        />
-      )}
+      <ConversationHeader
+        primaryTab={primaryTabInfo ?? undefined}
+        additionalTabs={additionalTabsInfo}
+        onRemoveAdditionalTab={handleRemoveAdditionalTab}
+        onAddTab={handleAddTab}
+        primaryTabLocked={primaryTabLocked}
+        excludeTabIds={excludeTabIds}
+      />
       <MessageList messages={messages} settings={settings} />
       {error && <ErrorBanner message={error} />}
       <InputArea
@@ -234,8 +236,6 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
         onStop={abort}
         isStreaming={isStreaming}
         disabled={!conversationId}
-        selectedTabIds={additionalTabIds}
-        onTabsChange={setAdditionalTabIds}
       />
     </>
   )

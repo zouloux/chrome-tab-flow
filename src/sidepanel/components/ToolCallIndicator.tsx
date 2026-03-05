@@ -44,7 +44,7 @@ export function ToolCallIndicator({ toolCall }: ToolCallIndicatorProps) {
         onClick={() => setExpanded((v) => !v)}
       >
         <span style={{ color: isRunning ? "#60a5fa" : "#22c55e" }}>
-          {isRunning ? <IconSpinner /> : <IconCheck />}
+          {isRunning ? <IconSpinner animated /> : <IconCheck />}
         </span>
         <span className="flex-1 truncate">{formatToolName(toolCall.name)}</span>
         <IconChevron open={expanded} />

@@ -71,9 +71,10 @@ export interface ToolCall {
 }
 
 export interface StreamEvent {
-  type: "text" | "thinking" | "tool_call" | "tool_calls_done" | "done" | "error"
+  type: "text" | "thinking" | "tool_call" | "tool_calls_done" | "tool_result" | "done" | "error"
   content?: string
   toolCall?: ToolCall
+  toolResult?: { id: string; result: string }
   usage?: { input: number; output: number }
   error?: string
 }

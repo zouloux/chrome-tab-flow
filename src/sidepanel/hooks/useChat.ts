@@ -247,6 +247,19 @@ export function useChat(conversationId: string | null) {
             return updated
           }
 
+          // tool_result - update the result for a specific tool call
+          if (event.type === "tool_result" && event.toolResult && existing) {
+            const updated = [...prev]
+            const toolCalls = existing.toolCalls ?? []
+            const tcIdx = toolCalls.findIndex((tc) => tc.id === event.toolResult!.id)
+            if (tcIdx >= 0) {
+              const newToolCalls = [...toolCalls]
+              newToolCalls[tcIdx] = { ...newToolCalls[tcIdx]!, result: event.toolResult.result }
+              updated[existingIdx] = { ...existing, toolCalls: newToolCalls }
+            }
+            return updated
+          }
+
           return prev
         })
       }
