@@ -8,6 +8,45 @@ import type { ToolResult } from "../shared/tool-types"
 // Tools that run in the background (not in content script)
 const BACKGROUND_TOOLS = new Set(["page_navigate", "page_screenshot"])
 
+// ── Content Script Injection ──────────────────────────────────────────────────
+
+const CONTENT_SCRIPT_PATH = "content/index.js"
+
+async function isContentScriptReady(tabId: number): Promise<boolean> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "ping" })
+    return response?.success === true
+  } catch {
+    return false
+  }
+}
+
+async function injectContentScript(tabId: number): Promise<boolean> {
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    if (!tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("chrome-extension://") || tab.url.startsWith("about:")) {
+      return false
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [CONTENT_SCRIPT_PATH],
+    })
+    await new Promise((r) => setTimeout(r, 100))
+    return true
+  } catch (e) {
+    console.error("[TabFlow] Failed to inject content script:", e)
+    return false
+  }
+}
+
+async function ensureContentScript(tabId: number): Promise<boolean> {
+  if (await isContentScriptReady(tabId)) {
+    return true
+  }
+  console.log("[TabFlow] Content script not ready, injecting...")
+  return injectContentScript(tabId)
+}
+
 // ── Execute Tool ─────────────────────────────────────────────────────────────
 
 export async function executeTool(
@@ -32,6 +71,13 @@ export async function executeTool(
 
   // All other tools run in content script
   try {
+    if (!(await ensureContentScript(tabId))) {
+      return {
+        success: false,
+        error: "Cannot access this page. Try refreshing the page or navigating to a regular website (not chrome:// or extension pages).",
+      }
+    }
+
     const response = await sendToContent<{ name: string; params: unknown }, ToolResult<unknown>>(
       tabId,
       "tool:execute",
@@ -76,7 +122,13 @@ async function executePageScreenshot(
   const { selector, fullPage } = params as { selector?: string; fullPage?: boolean }
 
   try {
-    // First, prepare for screenshot in content script
+    if (!(await ensureContentScript(tabId))) {
+      return {
+        success: false,
+        error: "Cannot access this page. Try refreshing the page or navigating to a regular website.",
+      }
+    }
+
     const prepResponse = await sendToContent<
       { name: string; params: unknown },
       { elementBounds?: { x: number; y: number; width: number; height: number }; devicePixelRatio: number }
