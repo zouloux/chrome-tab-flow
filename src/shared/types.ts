@@ -30,7 +30,7 @@ export type JSONSchema = {
 
 // ── LLM types ─────────────────────────────────────────────────────────────────
 
-export type LLMProvider = "anthropic" | "openai" | "gemini"
+export type LLMProvider = "anthropic" | "openai" | "gemini" | "openrouter"
 
 export interface LLMConfig {
   provider: LLMProvider

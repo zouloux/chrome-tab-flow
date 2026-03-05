@@ -291,6 +291,8 @@ function getApiKeyForProvider(settings: Settings): string | null {
       return settings.openaiApiKey || null
     case "gemini":
       return settings.geminiApiKey || null
+    case "openrouter":
+      return settings.openrouterApiKey || null
     default:
       return null
   }

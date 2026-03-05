@@ -149,6 +149,7 @@ async function* streamAnthropic(
       "content-type": "application/json",
       "x-api-key": config.apiKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify(body),
   })
@@ -424,6 +425,110 @@ async function* streamOpenAI(
   }
 }
 
+// ── OpenRouter ────────────────────────────────────────────────────────────────
+
+async function* streamOpenRouter(
+  config: LLMConfig,
+  messages: LLMMessage[],
+  tools?: ToolDefinition[],
+  signal?: AbortSignal
+): AsyncGenerator<StreamEvent> {
+  // OpenRouter uses OpenAI-compatible API, so reuse the same body builder
+  const body = buildOpenAIBody(config, messages, tools)
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    signal,
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => res.statusText)
+    yield { type: "error", error: `OpenRouter ${res.status}: ${text}` }
+    return
+  }
+
+  // OpenRouter streams in same format as OpenAI, reuse parsing logic
+  const toolBuffers: Record<
+    number,
+    { id: string; name: string; args: string }
+  > = {}
+  let hadToolCalls = false
+  let inputTokens = 0
+  let outputTokens = 0
+
+  for await (const line of readLines(res.body, signal)) {
+    if (!line.startsWith("data: ")) continue
+    const raw = line.slice(6).trim()
+    if (raw === "[DONE]") break
+    if (!raw) continue
+
+    let chunk: Record<string, unknown>
+    try {
+      chunk = JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      continue
+    }
+
+    // Usage
+    const usage = chunk.usage as Record<string, number> | undefined
+    if (usage) {
+      inputTokens = usage.prompt_tokens ?? 0
+      outputTokens = usage.completion_tokens ?? 0
+    }
+
+    const choices = chunk.choices as Array<Record<string, unknown>> | undefined
+    if (!choices || choices.length === 0) continue
+
+    const firstChoice = choices[0] as Record<string, unknown> | undefined
+    const delta = firstChoice?.delta as Record<string, unknown> | undefined
+    if (!delta) continue
+
+    // Text content
+    const content = delta.content as string | undefined
+    if (content) yield { type: "text", content }
+
+    // Tool calls
+    const tcDeltas = delta.tool_calls as Array<Record<string, unknown>> | undefined
+    if (tcDeltas) {
+      for (const tcd of tcDeltas) {
+        const idx = tcd.index as number
+        const fn = tcd.function as Record<string, string> | undefined
+
+        if (tcd.id) {
+          toolBuffers[idx] = { id: tcd.id as string, name: fn?.name ?? "", args: "" }
+        }
+
+        if (!toolBuffers[idx]) toolBuffers[idx] = { id: "", name: fn?.name ?? "", args: "" }
+
+        if (fn?.name && !toolBuffers[idx].name) toolBuffers[idx].name = fn.name
+        if (fn?.arguments) toolBuffers[idx].args += fn.arguments
+      }
+      hadToolCalls = true
+    }
+  }
+
+  // Emit completed tool calls
+  if (hadToolCalls) {
+    for (const buf of Object.values(toolBuffers)) {
+      let args: Record<string, unknown> = {}
+      try {
+        args = JSON.parse(buf.args) as Record<string, unknown>
+      } catch {
+        /* partial args — emit empty */
+      }
+      yield { type: "tool_call", toolCall: { id: buf.id, name: buf.name, arguments: args } }
+    }
+    yield { type: "tool_calls_done" }
+  } else {
+    yield { type: "done", usage: { input: inputTokens, output: outputTokens } }
+  }
+}
+
 // ── Gemini ────────────────────────────────────────────────────────────────────
 
 function buildGeminiBody(
@@ -634,6 +739,9 @@ export async function* streamLLM(
       case "openai":
         yield* streamOpenAI(config, messages, tools, signal)
         break
+      case "openrouter":
+        yield* streamOpenRouter(config, messages, tools, signal)
+        break
       case "gemini":
         yield* streamGemini(config, messages, tools, signal, thinking)
         break
@@ -648,5 +756,39 @@ export async function* streamLLM(
     } else {
       yield { type: "error", error: e instanceof Error ? e.message : String(e) }
     }
+  }
+}
+
+// ── OpenRouter Model Fetching ─────────────────────────────────────────────────
+
+export interface OpenRouterModel {
+  id: string
+  name: string
+  context_length?: number
+  pricing?: {
+    prompt: string
+    completion: string
+  }
+}
+
+/**
+ * Fetch available models from OpenRouter API
+ */
+export async function fetchOpenRouterModels(apiKey: string): Promise<OpenRouterModel[]> {
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+      },
+    })
+
+    if (!res.ok) {
+      throw new Error(`OpenRouter models API ${res.status}: ${res.statusText}`)
+    }
+
+    const data = await res.json() as { data?: OpenRouterModel[] }
+    return data.data ?? []
+  } catch (e) {
+    throw new Error(`Failed to fetch OpenRouter models: ${e instanceof Error ? e.message : String(e)}`)
   }
 }

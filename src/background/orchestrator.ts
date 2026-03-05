@@ -54,18 +54,37 @@ function isLegacySettings(s: Settings | LegacySettings): s is LegacySettings {
 function buildLLMConfig(settings: Settings | LegacySettings) {
   let provider: string
   let model: string
+  let apiKey: string
 
   if (isLegacySettings(settings)) {
     provider = settings.provider
     model = settings.model
+    apiKey = settings.apiKey
   } else {
     provider = settings.defaultProvider
     model = settings.defaultModel
+    // Get API key based on provider
+    switch (provider) {
+      case "anthropic":
+        apiKey = settings.anthropicApiKey
+        break
+      case "openai":
+        apiKey = settings.openaiApiKey
+        break
+      case "gemini":
+        apiKey = settings.geminiApiKey
+        break
+      case "openrouter":
+        apiKey = settings.openrouterApiKey
+        break
+      default:
+        apiKey = ""
+    }
   }
 
   return {
-    provider: provider as "anthropic" | "openai" | "gemini",
-    apiKey: isLegacySettings(settings) ? settings.apiKey : "",
+    provider: provider as "anthropic" | "openai" | "gemini" | "openrouter",
+    apiKey,
     model,
     maxTokens: settings.maxTokens,
     temperature: settings.temperature,

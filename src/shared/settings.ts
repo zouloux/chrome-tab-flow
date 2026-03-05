@@ -9,6 +9,7 @@ export interface Settings {
   anthropicApiKey: string
   openaiApiKey: string
   geminiApiKey: string
+  openrouterApiKey: string
 
   // Default provider & model
   defaultProvider: LLMProvider
@@ -24,22 +25,23 @@ export interface Settings {
 
 export const MODEL_OPTIONS: Record<LLMProvider, string[]> = {
   anthropic: [
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    //"claude-sonnet-4-5-20250929",
+    "claude-haiku-4-6",
   ],
   openai: [
     "gpt-4o",
     "gpt-4o-mini",
-    "o1",
-    "o1-mini",
     "o3-mini",
+    "o1",
   ],
   gemini: [
-    "gemini-2.0-flash",
-    "gemini-2.0-pro",
-    "gemini-2.5-flash",
     "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
   ],
+  openrouter: [], // Populated dynamically from API
 }
 
 // ── Default Settings ─────────────────────────────────────────────────────────
@@ -48,6 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   anthropicApiKey: "",
   openaiApiKey: "",
   geminiApiKey: "",
+  openrouterApiKey: "",
   defaultProvider: "anthropic",
   defaultModel: "claude-sonnet-4-20250514",
   showReasoning: false,

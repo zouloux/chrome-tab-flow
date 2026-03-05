@@ -6,6 +6,7 @@ import { SettingsSection } from "./SettingsSection"
 import { Toggle } from "./Toggle"
 import { MODEL_OPTIONS, type Settings } from "../../shared/settings"
 import type { LLMProvider } from "../../shared/types"
+import { fetchOpenRouterModels, type OpenRouterModel } from "../../shared/llms"
 
 interface SettingsPanelProps {
   onBack: () => void
@@ -15,6 +16,7 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",
+  openrouter: "OpenRouter",
 }
 
 function IconBack() {
@@ -140,10 +142,177 @@ function Select({
   )
 }
 
+function SearchableModelSelect({
+  value,
+  models,
+  onChange,
+  label,
+  loading,
+  error,
+  searchQuery,
+  onSearchChange,
+}: {
+  value: string
+  models: OpenRouterModel[]
+  onChange: (value: string) => void
+  label?: string
+  loading?: boolean
+  error?: string | null
+  searchQuery: string
+  onSearchChange: (query: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [isOpen])
+
+  const filteredModels = models.filter((m) =>
+    m.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    m.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  const selectedModel = models.find((m) => m.id === value)
+
+  return (
+    <div className="mb-4 last:mb-0" ref={dropdownRef}>
+      {label && (
+        <label className="block text-xs mb-1.5" style={{ color: "#a0a0a0" }}>
+          {label}
+        </label>
+      )}
+
+      {loading ? (
+        <div
+          className="w-full px-3 py-2 rounded text-sm"
+          style={{
+            backgroundColor: "#1a1a1a",
+            border: "1px solid #2a2a2a",
+            color: "#666666",
+          }}
+        >
+          Loading models...
+        </div>
+      ) : error ? (
+        <div
+          className="w-full px-3 py-2 rounded text-sm"
+          style={{
+            backgroundColor: "#1a1a1a",
+            border: "1px solid #ef4444",
+            color: "#ef4444",
+          }}
+        >
+          {error}
+        </div>
+      ) : (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsOpen(!isOpen)}
+            className="w-full px-3 py-2 rounded text-sm outline-none transition-colors text-left"
+            style={{
+              backgroundColor: "#1a1a1a",
+              border: "1px solid #2a2a2a",
+              color: "#e5e5e5",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "#3b82f6"
+            }}
+            onBlur={(e) => {
+              if (!isOpen) e.currentTarget.style.borderColor = "#2a2a2a"
+            }}
+          >
+            {selectedModel ? selectedModel.id : value || "Select a model..."}
+          </button>
+
+          {isOpen && (
+            <div
+              className="absolute z-10 w-full mt-1 rounded overflow-hidden"
+              style={{
+                backgroundColor: "#1a1a1a",
+                border: "1px solid #2a2a2a",
+                maxHeight: "300px",
+              }}
+            >
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Search models..."
+                className="w-full px-3 py-2 text-sm outline-none sticky top-0"
+                style={{
+                  backgroundColor: "#141414",
+                  border: "none",
+                  borderBottom: "1px solid #2a2a2a",
+                  color: "#e5e5e5",
+                }}
+                autoFocus
+              />
+              <div className="overflow-y-auto" style={{ maxHeight: "250px" }}>
+                {filteredModels.length === 0 ? (
+                  <div className="px-3 py-2 text-sm" style={{ color: "#666666" }}>
+                    No models found
+                  </div>
+                ) : (
+                  filteredModels.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => {
+                        onChange(model.id)
+                        setIsOpen(false)
+                        onSearchChange("")
+                      }}
+                      className="w-full px-3 py-2 text-sm text-left transition-colors"
+                      style={{
+                        backgroundColor: model.id === value ? "#1e1e1e" : "transparent",
+                        color: "#e5e5e5",
+                        border: "none",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "#1e1e1e"
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                          model.id === value ? "#1e1e1e" : "transparent"
+                      }}
+                    >
+                      <div>{model.id}</div>
+                      {model.name && model.name !== model.id && (
+                        <div className="text-xs" style={{ color: "#666666" }}>
+                          {model.name}
+                        </div>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function SettingsPanel({ onBack }: SettingsPanelProps) {
   const { settings, loading, save } = useSettings()
   const [localSettings, setLocalSettings] = useState<Settings | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [openrouterModels, setOpenrouterModels] = useState<OpenRouterModel[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [modelSearchQuery, setModelSearchQuery] = useState("")
 
   useEffect(() => {
     if (!loading) {
@@ -151,11 +320,32 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
     }
   }, [loading, settings])
 
-  const updateSetting = useCallback(
-    <K extends keyof Settings>(key: K, value: Settings[K]) => {
+  // Fetch OpenRouter models when provider is openrouter and API key is set
+  useEffect(() => {
+    if (
+      localSettings?.defaultProvider === "openrouter" &&
+      localSettings.openrouterApiKey &&
+      openrouterModels.length === 0
+    ) {
+      setLoadingModels(true)
+      setModelsError(null)
+      fetchOpenRouterModels(localSettings.openrouterApiKey)
+        .then((models) => {
+          setOpenrouterModels(models)
+          setLoadingModels(false)
+        })
+        .catch((err) => {
+          setModelsError(err instanceof Error ? err.message : String(err))
+          setLoadingModels(false)
+        })
+    }
+  }, [localSettings?.defaultProvider, localSettings?.openrouterApiKey, openrouterModels.length])
+
+  const updateSettings = useCallback(
+    (updates: Partial<Settings>) => {
       if (!localSettings) return
 
-      const updated = { ...localSettings, [key]: value }
+      const updated = { ...localSettings, ...updates }
       setLocalSettings(updated)
 
       if (debounceRef.current) {
@@ -163,10 +353,17 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
       }
 
       debounceRef.current = setTimeout(() => {
-        save({ [key]: value })
+        save(updates)
       }, 500)
     },
     [localSettings, save]
+  )
+
+  const updateSetting = useCallback(
+    <K extends keyof Settings>(key: K, value: Settings[K]) => {
+      updateSettings({ [key]: value })
+    },
+    [updateSettings]
   )
 
   if (loading || !localSettings) {
@@ -198,6 +395,7 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
     { value: "anthropic", label: "Anthropic" },
     { value: "openai", label: "OpenAI" },
     { value: "gemini", label: "Google Gemini" },
+    { value: "openrouter", label: "OpenRouter" },
   ]
 
   const currentProvider = localSettings.defaultProvider || "anthropic"
@@ -252,6 +450,11 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             value={localSettings.geminiApiKey}
             onChange={(v) => updateSetting("geminiApiKey", v)}
           />
+          <ApiKeyInput
+            label="OpenRouter API Key"
+            value={localSettings.openrouterApiKey}
+            onChange={(v) => updateSetting("openrouterApiKey", v)}
+          />
         </SettingsSection>
 
         {/* Model */}
@@ -262,22 +465,31 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             options={providerOptions}
             onChange={(v) => {
               const provider = v as LLMProvider
-              updateSetting("defaultProvider", provider)
-              updateSetting("defaultModel", (MODEL_OPTIONS[provider] || [])[0] || "")
+              updateSettings({
+                defaultProvider: provider,
+                defaultModel: (MODEL_OPTIONS[provider] || [])[0] || "",
+              })
             }}
           />
-          <Select
-            label="Default Model"
-            value={localSettings.defaultModel}
-            options={modelOptions}
-            onChange={(v) => updateSetting("defaultModel", v)}
-          />
-          <div className="text-xs mt-2" style={{ color: "#666666" }}>
-            Available models for {PROVIDER_LABELS[currentProvider]}:
-          </div>
-          <div className="text-xs mt-1" style={{ color: "#888888" }}>
-            {(MODEL_OPTIONS[currentProvider] || []).join(", ")}
-          </div>
+          {currentProvider === "openrouter" ? (
+            <SearchableModelSelect
+              label="Default Model"
+              value={localSettings.defaultModel}
+              models={openrouterModels}
+              loading={loadingModels}
+              error={modelsError}
+              searchQuery={modelSearchQuery}
+              onSearchChange={setModelSearchQuery}
+              onChange={(v) => updateSetting("defaultModel", v)}
+            />
+          ) : (
+            <Select
+              label="Default Model"
+              value={localSettings.defaultModel}
+              options={modelOptions}
+              onChange={(v) => updateSetting("defaultModel", v)}
+            />
+          )}
         </SettingsSection>
 
         {/* Preferences */}
