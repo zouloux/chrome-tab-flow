@@ -1,9 +1,9 @@
 // Shared animated icons for the side panel
 
-export function IconSpinner({ className = "spinner" }: { className?: string }) {
+export function IconSpinner({ className = "spinner", animated = false }: { className?: string; animated?: boolean }) {
   return (
     <svg
-      className={className}
+      className={`${animated ? "animate-spin" : ""} ${className}`.trim()}
       width="12"
       height="12"
       viewBox="0 0 12 12"

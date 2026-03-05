@@ -185,6 +185,7 @@ export type ToolCategory =
   | "dom-manipulation"
   | "visual"
   | "youtube"
+  | "tab-management"
 
 export interface ToolInfo {
   name: string

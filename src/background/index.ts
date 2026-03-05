@@ -159,6 +159,13 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       return ok(conv, message.requestId)
     }
 
+    case "conversation:save": {
+      const payload = message.payload as StoredConversation
+      payload.updatedAt = Date.now()
+      await saveConversation(payload)
+      return ok(payload, message.requestId)
+    }
+
     // ── Tabs ──────────────────────────────────────────────────────────────────
     case "tabs:list": {
       const tabs = await chrome.tabs.query({})

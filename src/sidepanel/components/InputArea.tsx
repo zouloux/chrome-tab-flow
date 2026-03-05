@@ -40,6 +40,14 @@ function IconClose() {
   )
 }
 
+function IconCheck() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4,8 7,11 12,5" />
+    </svg>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface InputAreaProps {
@@ -142,12 +150,38 @@ export function InputArea({
   // Get selected tabs info
   const selectedTabsInfo = availableTabs.filter((tab) => selectedTabIds.includes(tab.id))
 
-  // Sort tabs: active tab first
-  const sortedTabs = [...availableTabs].sort((a, b) => {
-    if (activeTab && a.id === activeTab.id) return -1
-    if (activeTab && b.id === activeTab.id) return 1
-    return 0
-  })
+  // Sort tabs intelligently: current active tab first, then by proximity/recent activity
+  const sortedTabs = useCallback(() => {
+    const tabs = [...availableTabs]
+
+    // Get current active tab with chrome API to get tab.index
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([currentTab]) => {
+      if (currentTab && currentTab.index !== undefined) {
+        // Sort by proximity if we have index
+        tabs.sort((a, b) => {
+          const aTab = availableTabs.find(t => t.id === a.id)
+          const bTab = availableTabs.find(t => t.id === b.id)
+
+          // Current tab always first
+          if (currentTab.id === a.id) return -1
+          if (currentTab.id === b.id) return 1
+
+          return 0
+        })
+      }
+    })
+
+    // Ensure active tab is first
+    const activeIndex = tabs.findIndex(t => activeTab && t.id === activeTab.id)
+    if (activeIndex > 0) {
+      const [active] = tabs.splice(activeIndex, 1)
+      tabs.unshift(active)
+    }
+
+    return tabs
+  }, [availableTabs, activeTab])
+
+  const displayTabs = sortedTabs()
 
   return (
     <div className="flex-shrink-0 px-2 py-2" style={{ borderTop: "1px solid #2a2a2a", backgroundColor: "#0a0a0a" }}>
@@ -228,14 +262,14 @@ export function InputArea({
           <button
             onClick={() => setShowTabPicker(!showTabPicker)}
             title="Add tab"
-            className="flex-shrink-0 flex items-center justify-center rounded-md transition-colors"
+            className="flex-shrink-0 flex items-center gap-1 px-2 rounded-md transition-colors"
             style={{
-              width: "24px",
               height: "24px",
               marginBottom: "1px",
               backgroundColor: "#1e1e1e",
               color: "#a0a0a0",
               border: "1px solid #2a2a2a",
+              fontSize: "11px",
             }}
             onMouseEnter={(e) => {
               ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a2a2a"
@@ -245,6 +279,7 @@ export function InputArea({
             }}
           >
             <IconPlus />
+            <span>tab</span>
           </button>
         )}
 
@@ -280,7 +315,18 @@ export function InputArea({
             overflowY: "auto",
           }}
         >
-          {sortedTabs.map((tab) => {
+          {selectedTabIds.length >= 3 && (
+            <div
+              className="px-3 py-2 text-center text-xs"
+              style={{
+                color: "#666666",
+                borderBottom: "1px solid #1a1a1a",
+              }}
+            >
+              Max 3 tabs
+            </div>
+          )}
+          {displayTabs.map((tab) => {
             const isSelected = selectedTabIds.includes(tab.id)
             const isActive = activeTab && activeTab.id === tab.id
             const canSelect = !isSelected && selectedTabIds.length < 3
@@ -289,40 +335,36 @@ export function InputArea({
               <button
                 key={tab.id}
                 onClick={() => {
-                  if (canSelect || isSelected) {
+                  if (canSelect) {
                     handleToggleTab(tab.id)
+                    setShowTabPicker(false)
                   }
                 }}
-                disabled={!canSelect && !isSelected}
+                disabled={!canSelect}
                 className="w-full px-3 py-2 text-left text-xs flex items-center gap-2 transition-colors"
                 style={{
-                  backgroundColor: isSelected ? "#1e1e1e" : "transparent",
-                  color: isSelected ? "#60a5fa" : "#e5e5e5",
+                  backgroundColor: "transparent",
+                  color: isSelected ? "#666666" : "#e5e5e5",
                   borderBottom: "1px solid #1a1a1a",
-                  cursor: canSelect || isSelected ? "pointer" : "not-allowed",
-                  opacity: !canSelect && !isSelected ? 0.5 : 1,
+                  cursor: canSelect ? "pointer" : "not-allowed",
+                  opacity: !canSelect ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
-                  if (canSelect || isSelected) {
+                  if (canSelect) {
                     ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e"
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (!isSelected) {
-                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"
-                  }
+                  ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  readOnly
-                  style={{
-                    width: "14px",
-                    height: "14px",
-                    accentColor: "#3b82f6",
-                  }}
-                />
+                {isSelected ? (
+                  <span style={{ color: "#60a5fa", display: "flex", alignItems: "center" }}>
+                    <IconCheck />
+                  </span>
+                ) : (
+                  <span style={{ width: "12px", height: "12px" }} />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="truncate">
                     {tab.title}

@@ -6,9 +6,13 @@ import { MessageList } from "./components/MessageList"
 import { InputArea } from "./components/InputArea"
 import { ConversationList } from "./components/ConversationList"
 import { SettingsPanel } from "./components/SettingsPanel"
+import { ConversationHeader } from "./components/ConversationHeader"
 import { useChat } from "./hooks/useChat"
 import { useConversations } from "./hooks/useConversations"
 import { useSettings } from "./hooks/useSettings"
+import { sendToBackground } from "../shared/messages"
+import type { TabInfo } from "../shared/types"
+import type { StoredConversation } from "../background/storage"
 
 // ── Loading Spinner ────────────────────────────────────────────────────────────
 
@@ -56,14 +60,132 @@ interface ChatViewProps {
 function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
   const { messages, isStreaming, isLoading, error, sendMessage, abort } = useChat(conversationId)
   const [inputValue, setInputValue] = useState("")
-  const [selectedTabIds, setSelectedTabIds] = useState<number[]>([])
+  const [primaryTabId, setPrimaryTabId] = useState<number | null>(null)
+  const [additionalTabIds, setAdditionalTabIds] = useState<number[]>([])
+  const [primaryTabLocked, setPrimaryTabLocked] = useState(false)
+  const [primaryTabInfo, setPrimaryTabInfo] = useState<TabInfo | null>(null)
+  const [additionalTabsInfo, setAdditionalTabsInfo] = useState<TabInfo[]>([])
 
-  const handleSend = useCallback((tabIds?: number[]) => {
+  // Load conversation tab state
+  useEffect(() => {
+    if (!conversationId) {
+      setPrimaryTabId(null)
+      setAdditionalTabIds([])
+      setPrimaryTabLocked(false)
+      return
+    }
+
+    async function loadConvTabState() {
+      const res = await sendToBackground<{ id: string }, StoredConversation>(
+        "conversation:load",
+        { id: conversationId! }
+      )
+      if (res.success && res.data) {
+        const conv = res.data
+        const locked = conv.primaryTabLocked ?? false
+        const associated = conv.associatedTabIds ?? [conv.tabId]
+
+        setPrimaryTabId(associated[0] ?? conv.tabId)
+        setAdditionalTabIds(associated.slice(1))
+        setPrimaryTabLocked(locked)
+
+        // Fetch tab info
+        const tabs = await chrome.tabs.query({})
+        const primaryTab = tabs.find(t => t.id === associated[0])
+        const additionalTabs = tabs.filter(t => t.id && associated.slice(1).includes(t.id))
+
+        if (primaryTab && primaryTab.id) {
+          setPrimaryTabInfo({
+            id: primaryTab.id,
+            title: primaryTab.title ?? "Untitled",
+            url: primaryTab.url,
+          })
+        }
+
+        setAdditionalTabsInfo(
+          additionalTabs.map(t => ({
+            id: t.id!,
+            title: t.title ?? "Untitled",
+            url: t.url,
+          }))
+        )
+      }
+    }
+
+    loadConvTabState()
+  }, [conversationId])
+
+  // Auto-track primary tab before first message
+  useEffect(() => {
+    if (!conversationId || primaryTabLocked || messages.length > 0) return
+
+    const listener = (activeInfo: chrome.tabs.TabActiveInfo) => {
+      setPrimaryTabId(activeInfo.tabId)
+      chrome.tabs.get(activeInfo.tabId).then(tab => {
+        if (tab.id) {
+          setPrimaryTabInfo({
+            id: tab.id,
+            title: tab.title ?? "Untitled",
+            url: tab.url,
+          })
+        }
+      })
+    }
+
+    chrome.tabs.onActivated.addListener(listener)
+    return () => chrome.tabs.onActivated.removeListener(listener)
+  }, [conversationId, primaryTabLocked, messages.length])
+
+  const handleSend = useCallback(async (tabIds?: number[]) => {
     if (!conversationId || !inputValue.trim() || isStreaming) return
-    sendMessage(inputValue, tabIds)
+
+    // Lock primary tab on first message
+    if (messages.length === 0 && !primaryTabLocked) {
+      setPrimaryTabLocked(true)
+
+      // Update stored conversation
+      const res = await sendToBackground<{ id: string }, StoredConversation>(
+        "conversation:load",
+        { id: conversationId }
+      )
+      if (res.success && res.data) {
+        const conv = res.data
+        conv.primaryTabLocked = true
+        conv.associatedTabIds = [primaryTabId!, ...additionalTabIds]
+        await sendToBackground("conversation:save", conv)
+      }
+    }
+
+    // Send with all associated tabs
+    const allTabIds = [primaryTabId!, ...additionalTabIds]
+    sendMessage(inputValue, allTabIds)
     setInputValue("")
-    setSelectedTabIds([]) // Clear selected tabs after sending
-  }, [conversationId, inputValue, isStreaming, sendMessage])
+  }, [conversationId, inputValue, isStreaming, messages.length, primaryTabLocked, primaryTabId, additionalTabIds, sendMessage])
+
+  const handleRemoveAdditionalTab = useCallback((tabId: number) => {
+    setAdditionalTabIds(prev => prev.filter(id => id !== tabId))
+    setAdditionalTabsInfo(prev => prev.filter(t => t.id !== tabId))
+  }, [])
+
+  const handleAddTab = useCallback((tabId: number) => {
+    if (additionalTabIds.length < 2 && !additionalTabIds.includes(tabId)) {
+      setAdditionalTabIds(prev => [...prev, tabId])
+
+      // Fetch tab info
+      chrome.tabs.get(tabId).then(tab => {
+        if (tab.id) {
+          setAdditionalTabsInfo(prev => [
+            ...prev,
+            {
+              id: tab.id!,
+              title: tab.title ?? "Untitled",
+              url: tab.url,
+            },
+          ])
+        }
+      })
+    }
+  }, [additionalTabIds])
 
   // Show loading spinner while loading conversation
   if (isLoading) {
@@ -91,8 +213,18 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
     )
   }
 
+  const hasMessages = messages.length > 0
+
   return (
     <>
+      {hasMessages && primaryTabInfo && (
+        <ConversationHeader
+          primaryTab={primaryTabInfo}
+          additionalTabs={additionalTabsInfo}
+          onRemoveAdditionalTab={handleRemoveAdditionalTab}
+          primaryTabLocked={primaryTabLocked}
+        />
+      )}
       <MessageList messages={messages} settings={settings} />
       {error && <ErrorBanner message={error} />}
       <InputArea
@@ -102,8 +234,8 @@ function ChatView({ conversationId, onNewChat, settings }: ChatViewProps) {
         onStop={abort}
         isStreaming={isStreaming}
         disabled={!conversationId}
-        selectedTabIds={selectedTabIds}
-        onTabsChange={setSelectedTabIds}
+        selectedTabIds={additionalTabIds}
+        onTabsChange={setAdditionalTabIds}
       />
     </>
   )

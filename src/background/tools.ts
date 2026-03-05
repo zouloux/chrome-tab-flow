@@ -6,7 +6,7 @@ import { isValidTool } from "../shared/tools"
 import type { ToolResult } from "../shared/tool-types"
 
 // Tools that run in the background (not in content script)
-const BACKGROUND_TOOLS = new Set(["page_navigate", "page_screenshot"])
+const BACKGROUND_TOOLS = new Set(["page_navigate", "page_screenshot", "tab_switch"])
 
 // ── Content Script Injection ──────────────────────────────────────────────────
 
@@ -52,7 +52,8 @@ export async function ensureContentScript(tabId: number): Promise<boolean> {
 export async function executeTool(
   name: string,
   params: unknown,
-  defaultTabId: number
+  defaultTabId: number,
+  associatedTabIds?: number[]
 ): Promise<ToolResult<unknown>> {
   if (!isValidTool(name)) {
     return { success: false, error: `Unknown tool: ${name}` }
@@ -71,6 +72,10 @@ export async function executeTool(
 
   if (name === "page_screenshot") {
     return executePageScreenshot(params, tabId)
+  }
+
+  if (name === "tab_switch") {
+    return executeTabSwitch(params, associatedTabIds ?? [tabId])
   }
 
   // All other tools run in content script
@@ -203,5 +208,38 @@ async function getViewportHeight(tabId: number): Promise<number> {
     return results[0]?.result ?? 1080
   } catch {
     return 1080
+  }
+}
+
+// ── Tab Switch (Background Tool) ──────────────────────────────────────────────
+
+async function executeTabSwitch(
+  params: unknown,
+  associatedTabIds: number[]
+): Promise<ToolResult<unknown>> {
+  const { tabId } = params as { tabId: number }
+
+  // Validate tab is associated
+  if (!associatedTabIds.includes(tabId)) {
+    return {
+      success: false,
+      error: `Tab ${tabId} is not associated with this conversation. Associated tabs: ${associatedTabIds.join(", ")}`,
+    }
+  }
+
+  try {
+    await chrome.tabs.update(tabId, { active: true })
+    // Small delay to ensure tab is activated
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    return {
+      success: true,
+      data: { tabId, switched: true },
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: `Failed to switch to tab: ${e}`,
+    }
   }
 }

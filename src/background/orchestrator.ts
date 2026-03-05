@@ -189,7 +189,8 @@ async function runLLMLoop(
       if (event.type === "tool_calls_done") {
         const toolResults = await executeToolCalls(
           conversation.pendingToolCalls,
-          conversation.tabId
+          conversation.tabId,
+          associatedTabIds
         )
 
         conversation.messages.push({
@@ -241,13 +242,14 @@ interface ToolResult {
 
 async function executeToolCalls(
   toolCalls: ToolCall[],
-  tabId: number
+  tabId: number,
+  associatedTabIds?: number[]
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = []
 
   for (const tc of toolCalls) {
     try {
-      const result = await executeTool(tc.name, tc.arguments, tabId)
+      const result = await executeTool(tc.name, tc.arguments, tabId, associatedTabIds)
       results.push({
         toolCallId: tc.id,
         toolName: tc.name,

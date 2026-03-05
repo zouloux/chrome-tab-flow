@@ -221,6 +221,15 @@ export const toolSchemas = {
     [],
     "Get video title, channel, description, duration"
   )),
+
+  // Tab Management
+  tab_switch: objectSchema(
+    {
+      tabId: numberSchema("ID of the tab to switch to"),
+    },
+    ["tabId"],
+    "Switch to a different tab. Only works with tabs associated with this conversation."
+  ),
 } as const
 
 // ── Tool Definitions (info only, execution handled separately) ────────────────
@@ -343,6 +352,14 @@ export const toolDefinitions: ToolInfo[] = [
     description: "Get video title, channel, description, duration",
     category: "youtube",
     parameters: toolSchemas.youtube_get_video_info,
+  },
+
+  // Tab Management
+  {
+    name: "tab_switch",
+    description: "Switch to a different tab. Only works with tabs associated with this conversation.",
+    category: "tab-management",
+    parameters: toolSchemas.tab_switch,
   },
 ]
 

@@ -30,8 +30,10 @@ export interface StoredConversation {
   messages: StoredMessage[]
   createdAt: number
   updatedAt: number
-  /** Currently associated tab IDs for this conversation */
+  /** Currently associated tab IDs for this conversation (primary + additional) */
   associatedTabIds?: number[]
+  /** True after first message sent - locks primary tab */
+  primaryTabLocked?: boolean
 }
 
 // ── Storage Keys Type ────────────────────────────────────────────────────────

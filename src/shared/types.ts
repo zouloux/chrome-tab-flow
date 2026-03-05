@@ -111,3 +111,11 @@ export interface ConversationIndexEntry {
   createdAt: number
   updatedAt: number
 }
+
+// ── Tab Selection State ──────────────────────────────────────────────────────
+
+export interface ConversationTabState {
+  primaryTabId: number
+  additionalTabIds: number[]
+  primaryTabLocked: boolean
+}
