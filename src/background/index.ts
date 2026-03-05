@@ -31,11 +31,18 @@ import {
   type StoredConversation,
 } from "./storage"
 import { runConversation } from "./orchestrator"
+import { initEncryption } from "./encryption"
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   console.log("[TabFlow] background: installed")
+  await initEncryption()
+})
+
+chrome.runtime.onStartup.addListener(async () => {
+  console.log("[TabFlow] background: startup")
+  await initEncryption()
 })
 
 // Open side panel when extension icon is clicked

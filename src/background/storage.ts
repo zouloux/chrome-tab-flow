@@ -3,6 +3,22 @@
 import type { StoredMessage, StoredToolCall, ConversationIndexEntry } from "../shared/types"
 import type { LLMMessage, ToolCall } from "../shared/types"
 import { STORAGE_KEYS, DEFAULT_SETTINGS, type Settings } from "../shared/settings"
+import {
+  encryptApiKey,
+  decryptApiKey,
+  getDecryptedKey,
+  setDecryptedKey,
+  clearDecryptedCache,
+} from "./encryption"
+
+const API_KEY_FIELDS = [
+  "anthropicApiKey",
+  "openaiApiKey",
+  "geminiApiKey",
+  "openrouterApiKey",
+] as const
+
+type ApiKeyField = (typeof API_KEY_FIELDS)[number]
 
 // ── Persisted Conversation ───────────────────────────────────────────────────
 
@@ -26,17 +42,91 @@ function makeConversationKey(id: string): string {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
+interface StoredSettings {
+  anthropicApiKeyEnc?: string
+  openaiApiKeyEnc?: string
+  geminiApiKeyEnc?: string
+  openrouterApiKeyEnc?: string
+  defaultProvider: Settings["defaultProvider"]
+  defaultModel: string
+  showReasoning: boolean
+  maxTokens: number
+  temperature: number
+}
+
+function providerFromKeyField(field: ApiKeyField): string {
+  return field.replace("ApiKey", "")
+}
+
 export async function getSettings(): Promise<Settings> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS)
-  const stored = result[STORAGE_KEYS.SETTINGS]
-  return { ...DEFAULT_SETTINGS, ...(stored ?? {}) }
+  const stored = result[STORAGE_KEYS.SETTINGS] as StoredSettings | undefined
+
+  const settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    defaultProvider: stored?.defaultProvider ?? DEFAULT_SETTINGS.defaultProvider,
+    defaultModel: stored?.defaultModel ?? DEFAULT_SETTINGS.defaultModel,
+    showReasoning: stored?.showReasoning ?? DEFAULT_SETTINGS.showReasoning,
+    maxTokens: stored?.maxTokens ?? DEFAULT_SETTINGS.maxTokens,
+    temperature: stored?.temperature ?? DEFAULT_SETTINGS.temperature,
+  }
+
+  for (const field of API_KEY_FIELDS) {
+    const encField = `${field}Enc` as keyof StoredSettings
+    const encrypted = stored?.[encField] as string | undefined
+    const provider = providerFromKeyField(field)
+    
+    if (encrypted) {
+      const cached = getDecryptedKey(provider)
+      if (cached) {
+        settings[field] = cached
+      } else {
+        try {
+          const decrypted = await decryptApiKey(encrypted)
+          settings[field] = decrypted
+          setDecryptedKey(provider, decrypted)
+        } catch {
+          settings[field] = ""
+        }
+      }
+    }
+  }
+
+  return settings
 }
 
 export async function saveSettings(settings: Partial<Settings>): Promise<Settings> {
   const current = await getSettings()
   const updated = { ...current, ...settings }
-  await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: updated })
+
+  const toStore: StoredSettings = {
+    defaultProvider: updated.defaultProvider,
+    defaultModel: updated.defaultModel,
+    showReasoning: updated.showReasoning,
+    maxTokens: updated.maxTokens,
+    temperature: updated.temperature,
+  }
+
+  for (const field of API_KEY_FIELDS) {
+    const value = updated[field]
+    const provider = providerFromKeyField(field)
+    
+    if (value && value.length > 0) {
+      const encrypted = await encryptApiKey(value)
+      if (field === "anthropicApiKey") toStore.anthropicApiKeyEnc = encrypted
+      else if (field === "openaiApiKey") toStore.openaiApiKeyEnc = encrypted
+      else if (field === "geminiApiKey") toStore.geminiApiKeyEnc = encrypted
+      else if (field === "openrouterApiKey") toStore.openrouterApiKeyEnc = encrypted
+      setDecryptedKey(provider, value)
+    }
+  }
+
+  await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: toStore })
   return updated
+}
+
+export function clearApiKeyCache(): void {
+  clearDecryptedCache()
 }
 
 // ── Conversation Index ────────────────────────────────────────────────────────

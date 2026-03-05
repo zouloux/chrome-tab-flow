@@ -27,25 +27,6 @@ function IconBack() {
   )
 }
 
-function IconEye() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 3c-4 0-7 3-7 7s3 7 7 7 7-3 7-7-3-7-7-7z" />
-      <circle cx="8" cy="8" r="2" />
-    </svg>
-  )
-}
-
-function IconEyeOff() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 2l12 12" />
-      <path d="M8 3c-4 0-7 3-7 7s2.5 5 5 5M8 13c4 0 7-3 7-7s-2.5-5-5-5" />
-      <path d="M3 9h.01M13 9h.01" />
-    </svg>
-  )
-}
-
 interface ApiKeyInputProps {
   label: string
   value: string
@@ -53,47 +34,57 @@ interface ApiKeyInputProps {
 }
 
 function ApiKeyInput({ label, value, onChange }: ApiKeyInputProps) {
-  const [visible, setVisible] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [inputValue, setInputValue] = useState("")
+  const hasKey = value && value.length > 0
+
+  const handleFocus = () => {
+    setIsEditing(true)
+    setInputValue("")
+  }
+
+  const handleBlur = () => {
+    setIsEditing(false)
+    if (inputValue.length > 0) {
+      onChange(inputValue)
+    }
+    setInputValue("")
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value)
+  }
+
+  const displayValue = isEditing
+    ? inputValue
+    : hasKey
+      ? "•".repeat(16)
+      : ""
 
   return (
     <div className="mb-4 last:mb-0">
       <label className="block text-xs mb-1.5" style={{ color: "#a0a0a0" }}>
         {label}
       </label>
-      <div className="flex items-center gap-2">
-        <input
-          type={visible ? "text" : "password"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="sk-..."
-          className="flex-1 px-3 py-2 rounded text-sm outline-none transition-colors"
-          style={{
-            backgroundColor: "#1a1a1a",
-            border: "1px solid #2a2a2a",
-            color: "#e5e5e5",
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = "#3b82f6"
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = "#2a2a2a"
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => setVisible(!visible)}
-          className="flex items-center justify-center rounded transition-colors"
-          style={{
-            width: "32px",
-            height: "32px",
-            backgroundColor: "#1a1a1a",
-            border: "1px solid #2a2a2a",
-            color: "#a0a0a0",
-          }}
-        >
-          {visible ? <IconEyeOff /> : <IconEye />}
-        </button>
-      </div>
+      <input
+        type="password"
+        value={displayValue}
+        onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        placeholder={hasKey ? "••••••••••••••••" : "sk-..."}
+        className="w-full px-3 py-2 rounded text-sm outline-none transition-colors"
+        style={{
+          backgroundColor: "#1a1a1a",
+          border: "1px solid #2a2a2a",
+          color: "#e5e5e5",
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur()
+          }
+        }}
+      />
     </div>
   )
 }

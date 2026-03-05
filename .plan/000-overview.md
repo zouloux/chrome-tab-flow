@@ -17,6 +17,7 @@ Numbered files in this directory describe each implementation phase in order. Ea
 12. `012-screenshot-system.md` - Partial screenshots, element capture, send to LLM
 13. `013-system-prompt.md` - Pre-prompt design, tool descriptions, behavior rules
 14. `014-polish.md` - Error handling, edge cases, UX refinements
+15. `015-api-key-encryption.md` - Web Crypto API encryption for API keys at rest
 
 ## Reading Order
 Read files in numerical order. Each phase builds on previous ones.
