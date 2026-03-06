@@ -148,16 +148,24 @@ export async function runConversation(
 
 // ── LLM Loop (handles tool call cycles) ───────────────────────────────────────
 
+const MAX_TOOL_CALL_ROUNDS = 10
+
 async function runLLMLoop(
   conversation: ConversationState,
-  config: ReturnType<typeof buildLLMConfig>,
+  config: Awaited<ReturnType<typeof buildLLMConfig>>,
   tools: ReturnType<typeof getToolsForLLM>,
   signal: AbortSignal,
   associatedTabIds?: number[]
 ): Promise<void> {
   let shouldContinue = true
+  let toolCallRounds = 0
 
   while (shouldContinue) {
+    if (toolCallRounds >= MAX_TOOL_CALL_ROUNDS) {
+      sendDone(conversation.id, `Max tool call rounds (${MAX_TOOL_CALL_ROUNDS}) reached. The model may be stuck in a loop.`)
+      return
+    }
+    toolCallRounds++
     shouldContinue = false
     conversation.pendingToolCalls = []
 
@@ -188,6 +196,15 @@ async function runLLMLoop(
       }
 
       if (event.type === "tool_calls_done") {
+        conversation.messages.push({
+          role: "assistant",
+          content: textContent,
+          thinking: thinkingContent || undefined,
+          toolCalls: conversation.pendingToolCalls.length > 0 
+            ? conversation.pendingToolCalls 
+            : undefined,
+        })
+
         for (const tc of conversation.pendingToolCalls) {
           try {
             const result = await executeTool(tc.name, tc.arguments, conversation.tabId, associatedTabIds)
@@ -219,15 +236,6 @@ async function runLLMLoop(
             })
           }
         }
-
-        conversation.messages.push({
-          role: "assistant",
-          content: textContent,
-          thinking: thinkingContent || undefined,
-          toolCalls: conversation.pendingToolCalls.length > 0 
-            ? conversation.pendingToolCalls 
-            : undefined,
-        })
 
         shouldContinue = true
         break
