@@ -6,6 +6,7 @@ import { getToolsForLLM } from "../shared/tools"
 import { buildSystemPrompt } from "../shared/system-prompt"
 import type { Settings } from "../shared/settings"
 import type { ConversationState } from "./state"
+import { getAbortController } from "./state"
 import { executeTool } from "./tools"
 
 // ── Send Chunk to Side Panel ─────────────────────────────────────────────────
@@ -131,8 +132,12 @@ export async function runConversation(
     conversation.tabId = associatedTabIds[0]!
   }
 
-  // Create abort controller
-  const abortController = new AbortController()
+  // Get abort controller from state (created by message handler)
+  const abortController = getAbortController(conversation.id)
+  if (!abortController) {
+    sendDone(conversation.id, "Failed to create abort controller")
+    return
+  }
   conversation.isStreaming = true
   conversation.pendingToolCalls = []
 
@@ -254,6 +259,16 @@ async function runLLMLoop(
         sendDone(conversation.id, event.error)
         return
       }
+    }
+
+    // Safety: if loop ended without done/error/tool_calls_done, ensure we signal completion
+    if (!shouldContinue && conversation.isStreaming) {
+      conversation.messages.push({
+        role: "assistant",
+        content: textContent,
+        thinking: thinkingContent || undefined,
+      })
+      sendDone(conversation.id)
     }
   }
 }

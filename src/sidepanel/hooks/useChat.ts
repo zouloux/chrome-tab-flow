@@ -162,6 +162,19 @@ export function useChat(conversationId: string | null) {
 
         const event = payload.event
 
+        // Pre-compute new message ID if needed (prevents race conditions in batched updates)
+        const currentMsgId = streamingMsgIdRef.current
+        const eventsNeedingMessage = ["text", "thinking", "tool_call"] as const
+        const needsNewMessage = 
+          eventsNeedingMessage.includes(event.type as typeof eventsNeedingMessage[number]) && 
+          !currentMsgId
+        
+        // Set ref BEFORE calling setMessages so subsequent events see it
+        const newMsgId = needsNewMessage ? crypto.randomUUID() : null
+        if (newMsgId) {
+          streamingMsgIdRef.current = newMsgId
+        }
+
         setMessages((prev) => {
           // Find the current streaming assistant message index
           const msgId = streamingMsgIdRef.current
@@ -174,11 +187,12 @@ export function useChat(conversationId: string | null) {
               updated[existingIdx] = { ...existing, text: existing.text + event.content }
               return updated
             } else {
-              const newId = crypto.randomUUID()
-              streamingMsgIdRef.current = newId
+              // Use the pre-computed ID (either newMsgId or msgId if set)
+              const id = newMsgId ?? msgId ?? crypto.randomUUID()
+              if (!streamingMsgIdRef.current) streamingMsgIdRef.current = id
               return [
                 ...prev,
-                makeAssistantMessage({ id: newId, role: "assistant", text: event.content, isStreaming: true }),
+                makeAssistantMessage({ id, role: "assistant", text: event.content, isStreaming: true }),
               ]
             }
           }
@@ -192,12 +206,12 @@ export function useChat(conversationId: string | null) {
               }
               return updated
             } else {
-              const newId = crypto.randomUUID()
-              streamingMsgIdRef.current = newId
+              const id = newMsgId ?? msgId ?? crypto.randomUUID()
+              if (!streamingMsgIdRef.current) streamingMsgIdRef.current = id
               return [
                 ...prev,
                 makeAssistantMessage({
-                  id: newId,
+                  id,
                   role: "assistant",
                   thinking: event.content,
                   isStreaming: true,
@@ -223,12 +237,12 @@ export function useChat(conversationId: string | null) {
               }
               return updated
             } else {
-              const newId = crypto.randomUUID()
-              streamingMsgIdRef.current = newId
+              const id = newMsgId ?? msgId ?? crypto.randomUUID()
+              if (!streamingMsgIdRef.current) streamingMsgIdRef.current = id
               return [
                 ...prev,
                 makeAssistantMessage({
-                  id: newId,
+                  id,
                   role: "assistant",
                   toolCalls: [{ id: tc.id, name: tc.name, arguments: tc.arguments, done: false }],
                   isStreaming: true,
